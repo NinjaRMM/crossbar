@@ -796,6 +796,7 @@ class Node(object):
                             )
 
         # start rlinks for realms
+        # TODO: Defer rlink setups until controller starts all workers
         dl = []
         for realm in worker.get('realms', []):
             realm_id = realm['id']
