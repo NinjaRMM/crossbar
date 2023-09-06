@@ -211,6 +211,10 @@ class Dealer(object):
                     session=session._session_id,
                 )
 
+                if invoke.timeout_call:
+                    invoke.timeout_call.cancel()
+                    invoke.timeout_call = None
+                    
                 invokes = self._callee_to_invocations[callee]
                 invokes.remove(invoke)
                 if not invokes:
@@ -248,6 +252,10 @@ class Dealer(object):
                 # _transport is None before we get here though)
                 if invoke.caller._transport:
                     invoke.caller._transport.send(reply)
+
+                if invoke.timeout_call:
+                    invoke.timeout_call.cancel()
+                    invoke.timeout_call = None
 
                 invokes = self._caller_to_invocations[invoke.caller]
                 invokes.remove(invoke)
