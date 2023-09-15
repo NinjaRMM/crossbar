@@ -7,6 +7,7 @@
 
 from typing import Dict, Any, Optional, List, Tuple
 
+from crossbar.router.session import RouterSession
 from twisted.internet.defer import inlineCallbacks
 from twisted.python.failure import Failure
 
@@ -197,6 +198,31 @@ class RouterServiceAgent(ApplicationSession):
         # needs to be expanded!
         if not isinstance(failure.value, ApplicationError):
             super(RouterServiceAgent, self).onUserError(failure, msg)
+
+    @wamp.register(u'wamp.session.summary')
+    def session_summary(self, filter_authroles=None, details=None):
+        """
+        Get summary of sessions currently joined on the router grouped by auth_roles.
+
+        :param filter_authroles: If provided, only return sessions counts for authroles from this list.
+        :type filter_authroles: None or list
+
+        :returns: List of WAMP session IDs (order undefined).
+        :rtype: list
+        """
+        assert (filter_authroles is None or type(filter_authroles) == list)
+        session_counts = {}
+        for session in self._router._session_id_to_session.values():
+            if not is_restricted_session(session):
+                if isinstance(session, RouterSession):
+                    auth_role = session._session_details.authrole
+                    if filter_authroles is None or auth_role in filter_authroles:
+                        if auth_role in session_counts:
+                            session_counts[auth_role] += 1
+                        else:
+                            session_counts[auth_role] = 1
+
+        return session_counts
 
     @wamp.register('wamp.session.list')
     def session_list(self, filter_authroles=None, details=None):
@@ -725,6 +751,67 @@ class RouterServiceAgent(ApplicationSession):
                 if not is_protected_uri(registration.uri, details) and is_registration_visible_to_caller(
                     is_rlink_caller, registration):
                     registrations_wildcard.append(registration.id)
+
+            regs = {
+                'exact': registrations_exact,
+                'prefix': registrations_prefix,
+                'wildcard': registrations_wildcard,
+            }
+
+            return regs
+
+    @wamp.register('wamp.registration.list_uris')
+    def registration_list_uris(self, session_id=None, details=None):
+        """
+        List current registrations.
+
+        :returns: A dictionary with three entries for the match policies 'exact', 'prefix'
+            and 'wildcard', with a list of registration IDs for each.
+        :rtype: dict
+        """
+        if session_id:
+
+            s2r = self._router._dealer._session_to_registrations
+            session = None
+
+            if session_id in self._router._session_id_to_session:
+                session = self._router._session_id_to_session[session_id]
+                if is_restricted_session(session):
+                    session = None
+
+            if not session or session not in s2r:
+                raise ApplicationError(
+                    ApplicationError.NO_SUCH_SESSION,
+                    'no session with ID {} exists on this router'.format(session_id),
+                )
+
+            _regs = s2r[session]
+
+            regs = {
+                'exact': [reg.uri for reg in _regs if reg.match == 'exact'],
+                'prefix': [reg.uri for reg in _regs if reg.match == 'prefix'],
+                'wildcard': [reg.uri for reg in _regs if reg.match == 'wildcard'],
+            }
+            return regs
+
+        else:
+
+            registration_map = self._router._dealer._registration_map
+
+            registrations_exact = []
+            for registration in registration_map._observations_exact.values():
+                if not is_protected_uri(registration.uri, details):
+                    registrations_exact.append(registration.uri)
+
+            registrations_prefix = []
+            for registration in registration_map._observations_prefix.values():
+                if not is_protected_uri(registration.uri, details):
+                    registrations_prefix.append(registration.uri)
+
+            registrations_wildcard = []
+            for registration in registration_map._observations_wildcard.values():
+                if not is_protected_uri(registration.uri, details):
+                    registrations_wildcard.append(registration.uri)
 
             regs = {
                 'exact': registrations_exact,
