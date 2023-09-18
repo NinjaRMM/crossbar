@@ -531,6 +531,7 @@ def check_transport_auth_cryptosign(config):
                 check_dict_args(
                     {
                         'authorized_keys': (True, [Sequence]),
+                        'template': (False, [bool]),
                         'role': (False, [str]),
                         'realm': (False, [str]),
                     }, principal, "WAMP-Cryptosign - principal '{}' configuration".format(authid))

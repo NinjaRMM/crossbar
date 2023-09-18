@@ -231,8 +231,8 @@ class PendingAuthCryptosign(PendingAuth):
                         return Deny(message='cannot identify client: no authid requested and no extra.pubkey provided')
 
                 principals = self._config.get('principals', {})
-                if self._authid in principals:
-                    principal = principals[self._authid]
+                principal_id, principal = self.find_principal(principals)
+                if principal is not None:
                     if pubkey and (pubkey not in principal['authorized_keys']):
                         self.log.warn(
                             'extra.pubkey {pubkey} provided does not match any one of authorized_keys for the principal [func="{func}"]:\n{principals}',
@@ -243,6 +243,15 @@ class PendingAuthCryptosign(PendingAuth):
                             principals=pformat(principals))
                         return Deny(
                             message='extra.pubkey provided does not match any one of authorized_keys for the principal'
+                        )
+                    if principal['template'] and principal_id+self._realm_container.node_id == self._authid:
+                        self.log.warn(
+                            'Loopback connection detected from self {authid} [func="{func}"]',
+                            func=hltype(self.hello),
+                            authid=hlid(details.authid))
+                        return Deny(
+                            reason='wamp.error.loop_detected',
+                            message='Connections from self are not allowed'
                         )
                 else:
                     self.log.warn(
@@ -476,6 +485,13 @@ class PendingAuthCryptosign(PendingAuth):
             self.log.failure()
             return Deny(message='INTERNAL ERROR ({})'.format(e))
 
+    def find_principal(self, principals):
+        principal = principals[self._authid] if self._authid in principals else None
+        if principal is None:
+            for _authid, _principal in principals.items():
+                if _principal['template'] and self._authid.startswith(_authid):
+                    return _authid, _principal
+        return self._authid, None
 
 class PendingAuthCryptosignProxy(PendingAuthCryptosign):
     """

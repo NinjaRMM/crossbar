@@ -807,6 +807,7 @@ class Dealer(object):
             # authorization = {
             #     'allow': True,
             #     'disclose': False,
+            #     'rewrite_uri': 'new.uri',
             #     'validate': {
             #         'catalog': 'pydefi.eth',
             #         'args': None,
@@ -869,6 +870,9 @@ class Dealer(object):
                         reply.correlation_is_last = True
                         self._router.send(session, reply)
                         return
+
+                if 'rewrite_uri' in authorization:
+                    call.procedure = authorization['rewrite_uri']
 
                 # get registrations active on the procedure called
                 registration = self._registration_map.best_matching_observation(call.procedure)

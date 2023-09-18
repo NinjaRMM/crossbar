@@ -432,7 +432,7 @@ class RouterRoleDynamicAuth(RouterRole):
             if isinstance(authorization, dict):
                 # check keys
                 for key in authorization.keys():
-                    if key not in ['allow', 'cache', 'disclose', 'validate']:
+                    if key not in ['allow', 'cache', 'disclose', 'validate', 'rewrite_uri']:
                         return Failure(ValueError("Authorizer returned unknown key '{key}'".format(key=key, )))
                 # must have "allow" key
                 if 'allow' not in authorization:
@@ -443,6 +443,14 @@ class RouterRoleDynamicAuth(RouterRole):
                         value = authorization[key]
                         if not isinstance(value, bool):
                             return Failure(ValueError("Authorizer must have bool for '{}'".format(key)))
+
+                # check string-valued keys
+                for key in ['rewrite_uri']:
+                    if key in authorization:
+                        value = authorization[key]
+                        if not isinstance(value, str):
+                            return Failure(ValueError("Authorizer must have string for '{}'".format(key)))
+
                 # check dict-valued keys
                 for key in ['validate']:
                     if key in authorization:

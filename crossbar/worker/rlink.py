@@ -49,6 +49,7 @@ class URIExclusions:
         self.prefix = uri_excludes.get('prefix', []) if uri_excludes is not None else []
         self.wildcard = uri_excludes.get('wildcard', []) if uri_excludes is not None else []
 
+
 class BridgeSession(ApplicationSession):
     log = make_logger()
 
@@ -67,6 +68,8 @@ class BridgeSession(ApplicationSession):
         self._rlink_id = config.extra['rlink_id']
 
         self.other = None
+
+        self._namespace_prefix = None
 
     def _on_unregistered(self, msg):
         if msg.request == 0:
@@ -107,7 +110,6 @@ class BridgeSession(ApplicationSession):
 
             del self._regs[reg_id]
 
-
     def onMessage(self, msg):
         if msg._router_internal is not None:
             if isinstance(msg, Event):
@@ -139,7 +141,6 @@ class BridgeSession(ApplicationSession):
         # TODO: handle wildcards
 
         return False
-
 
     def _common_setup(self, other):
         self.other = other
@@ -351,7 +352,6 @@ class BridgeSession(ApplicationSession):
             self._active = True
             yield forward_current_subs()
 
-        @inlineCallbacks
         def on_remote_leave(_session, _details):
             # The remote session has ended, clear subscription records.
             # Clearing this dictionary helps avoid the case where
@@ -381,6 +381,79 @@ class BridgeSession(ApplicationSession):
                              options=SubscribeOptions(details_arg="details"))
 
         self.log.debug("{me}: event forwarding setup done", me=self)
+
+    @inlineCallbacks
+    def _register_namespace(self, other: ApplicationSession, namespace):
+
+        if '{' in namespace:
+            namespace = str.format(namespace, node_id=self._router_controller.node_id)
+        self._namespace_prefix = namespace
+
+        ERR_MSG = [None]
+
+        @inlineCallbacks
+        def on_namespace_call(*args, **kwargs):
+
+            assert 'details' in kwargs
+
+            details = kwargs.pop('details')
+            options = kwargs.pop('options', None)
+
+            if details.caller is None or details.caller_authrole is None or details.caller_authid is None:
+                raise RuntimeError("Internal error attempting rlink forwarding")
+
+            procedure = details.procedure.removeprefix(namespace)
+            self.log.info(
+                'Received namespace invocation on uri={uri}, options={options} (caller={caller}, caller_authid={caller_authid}, caller_authrole={caller_authrole}, forward_for={forward_for})',
+                uri=procedure,
+                options=options,
+                caller=details.caller,
+                caller_authid=details.caller_authid,
+                caller_authrole=details.caller_authrole,
+                forward_for=details.forward_for)
+
+            this_forward = {
+                'session': details.caller,
+                'authid': details.caller_authrole,
+                'authrole': details.caller_authrole,
+            }
+
+            if details.forward_for:
+                # the call comes already forwarded from a router node ..
+                if len(details.forward_for) >= 0:
+                    self.log.debug('SKIP! already forwarded')
+                    return
+
+                forward_for = copy.deepcopy(details.forward_for)
+                forward_for.append(this_forward)
+            else:
+                forward_for = [this_forward]
+
+            options = CallOptions(forward_for=forward_for)
+
+            try:
+                result = yield other.call(procedure, *args, options=options, **kwargs)
+            except TransportLost:
+                return
+            except ApplicationError as e:
+                if e.error not in ['wamp.close.normal']:
+                    self.log.warn('FAILED TO CALL 1: {} {}'.format(type(e), str(e)))
+                return
+            except Exception as e:
+                if not ERR_MSG[0]:
+                    self.log.warn('FAILED TO CALL 2: {} {}'.format(type(e), str(e)))
+                    ERR_MSG[0] = True
+                return
+
+            self.log.info(
+                "RLink forward-invoked call {dir} (options={options})",
+                dir=self.DIR,
+                options=options,
+            )
+            return result
+
+        yield self.register(on_namespace_call, namespace, options=RegisterOptions(match='prefix'))
+
 
     @inlineCallbacks
     def _setup_invocation_forwarding(self, other: ApplicationSession):
@@ -859,6 +932,11 @@ class RLinkRemoteSession(BridgeSession):
         if forward_invocations:
             yield self._setup_invocation_forwarding(local)
 
+
+        register_namespace = self.config.extra.get('register_namespace', None)
+        if register_namespace:
+            yield self._register_namespace(local, register_namespace)
+
         self.log.info(
             '{klass}.onJoin(): rlink remote session ready (forward_events={forward_events}, forward_invocations={forward_invocations}, realm={realm}, authid={authid}, authrole={authrole}, session={session}) {method}',
             klass=self.__class__.__name__,
@@ -903,14 +981,50 @@ class RLinkRemoteSession(BridgeSession):
         self.other = None
         BridgeSession.onLeave(self, details)
 
+        if details.reason == 'wamp.error.loop_detected':
+            # advise manager to not attempt connecting to self again
+            self._rlink_manager._on_loop_detected(self._rlink_id)
 
-class RLink(object):
-    def __init__(self, id, config, started=None, started_by=None, local=None, remote=None):
+            on_ready = self.config.extra.get('on_ready', None)
+            if on_ready and not on_ready.called:
+                self.config.extra['on_ready'].errback(BaseException(details))
+
+
+class RLinkTemplate(object):
+    def __init__(self, id, config, local, started=None, started_by=None):
         assert type(id) == str
         assert isinstance(config, RLinkConfig)
         assert started is None or type(started) == int
         assert started_by is None or isinstance(started_by, RLinkConfig)
-        assert local is None or isinstance(local, RLinkLocalSession)
+        assert local is None or isinstance(local, ApplicationSession)
+
+        # link ID
+        self.id = id
+
+        # link config: RLinkConfig
+        self.config = config
+
+        # when was it started: epoch time in ns
+        self.started = started
+
+        # who started this link: SessionIdent
+        self.started_by = started_by
+
+        # local session: RLinkLocalSession
+        self.local = local
+
+    def marshal(self):
+        obj = {
+            'id': self.id,
+            'config': self.config.marshal() if self.config else None,
+            'started': self.started,
+            'started_by': self.started_by.marshal() if self.started_by else None
+        }
+        return obj
+
+
+class RLink(object):
+    def __init__(self, id, config, started=None, started_by=None, local=None, remote=None):
         assert remote is None or isinstance(remote, RLinkLocalSession)
 
         # link ID
@@ -930,9 +1044,11 @@ class RLink(object):
 
         # remote session: RLinkRemoteSession
         self.remote = remote
+        self.remote_runner = None
 
         # updated by the session
         self.connected = False
+
 
     def __str__(self):
         return pprint.pformat(self.marshal())
@@ -951,7 +1067,8 @@ class RLink(object):
 class RLinkConfig(object):
     def __init__(self, realm, transport, authrole, authid, exclude_authid, exclude_authrole, exclude_uri,
                  forward_local_events,
-                 forward_remote_events, forward_local_invocations, forward_remote_invocations):
+                 forward_remote_events, forward_local_invocations, forward_remote_invocations,
+                 template=False, discovery=None, reciprocate=False, register_remote_namespace=None):
         """
 
         :param realm: The remote router realm.
@@ -972,7 +1089,10 @@ class RLinkConfig(object):
         self.forward_remote_events = forward_remote_events
         self.forward_local_invocations = forward_local_invocations
         self.forward_remote_invocations = forward_remote_invocations
-
+        self.template = template
+        self.discovery_uri = discovery
+        self.reciprocate = reciprocate
+        self.register_remote_namespace = register_remote_namespace
     def __str__(self):
         return pprint.pformat(self.marshal())
 
@@ -988,6 +1108,7 @@ class RLinkConfig(object):
             'forward_remote_events': self.forward_remote_events,
             'forward_local_invocations': self.forward_local_invocations,
             'forward_remote_invocations': self.forward_remote_invocations,
+            'template': self.template,
         }
         return obj
 
@@ -1015,6 +1136,9 @@ class RLinkConfig(object):
                 'id': (False, [str]),
                 'realm': (True, [str]),
                 'transport': (True, [Mapping]),
+                'template': (False, [bool]),
+                'reciprocate': (False, [bool]),
+                'discovery': (False, [str]),
                 'authid': (False, [str]),
                 'authrole': (False, [str]),
                 'exclude_authid': (False, [Sequence]),
@@ -1024,6 +1148,7 @@ class RLinkConfig(object):
                 'forward_remote_events': (False, [bool]),
                 'forward_local_invocations': (False, [bool]),
                 'forward_remote_invocations': (False, [bool]),
+                'register_remote_namespace': (False, [str]),
             }, obj, 'router link configuration')
 
         realm = obj['realm']
@@ -1050,8 +1175,15 @@ class RLinkConfig(object):
         forward_remote_invocations = obj.get('forward_remote_invocations', True)
         transport = obj['transport']
 
+        template = obj.get('template', False)
+        discovery_uri = obj.get('discovery', None)
+        reciprocate = obj.get('reciprocate', False)
+        register_remote_namespace = obj.get('register_remote_namespace', None)
+
         check_realm_name(realm)
-        check_connecting_transport(personality, transport)
+
+        if not template:
+            check_connecting_transport(personality, transport)
 
         config = RLinkConfig(
             realm=realm,
@@ -1065,6 +1197,10 @@ class RLinkConfig(object):
             forward_remote_events=forward_remote_events,
             forward_local_invocations=forward_local_invocations,
             forward_remote_invocations=forward_remote_invocations,
+            template=template,
+            discovery=discovery_uri,
+            reciprocate=reciprocate,
+            register_remote_namespace=register_remote_namespace,
         )
 
         return config
@@ -1091,6 +1227,11 @@ class RLinkManager(object):
 
         # map: link_id -> RLink
         self._links: Dict[str, RLink] = {}
+        self._link_templates: Dict[str, RLinkTemplate] = {}
+        self._blacklist = []
+        self._discovery_trigger_sessions = {}
+
+        self.subscribed_to_session_events = False
 
     @property
     def realm(self):
@@ -1122,6 +1263,70 @@ class RLinkManager(object):
         return self._links.keys()
 
     @inlineCallbacks
+    def _run_discovery(self, linkid):
+        template = self._link_templates[linkid]
+
+        discovery_result = yield template.local.call(template.config.discovery_uri)
+
+        self.controller._reactor.callLater(0, self._process_discovery_result, linkid, template.config,
+                                           discovery_result, None)
+
+    @inlineCallbacks
+    def _process_discovery_result(self, link_id, link_config, discovery_result, caller):
+        for remote in discovery_result:
+            remote_link_id = '{}.{}'.format(link_id, remote['name'] or remote['host'])
+            try:
+                if remote_link_id in self._links:
+                    continue
+
+                if next(filter(lambda x: x['host'] == remote['host'] and x['port'] == remote['port'], self._blacklist),
+                        None) is None:
+                    remote_link_config = copy.deepcopy(link_config)
+                    remote_link_config.transport['endpoint']['host'] = str.format(
+                        remote_link_config.transport['endpoint']['host'], remote_host=remote['host'])
+                    remote_link_config.transport['endpoint']['port'] = int(
+                        str.format(remote_link_config.transport['endpoint']['port'], remote_port=remote['port']))
+                    remote_link_config.transport['url'] = str.format(remote_link_config.transport['url'],
+                                                                     remote_host=remote['host'], remote_port=remote['port'])
+                    remote_link_config.authid = remote_link_config.authid + '-' + self.controller.node_id
+                    self.controller._reactor.callLater(0, self._start_rlink, link_id, remote_link_id, remote_link_config, caller)
+                else:
+                    self.log.info('Skipping blacklisted host {host}:{port}', host=remote['host'], port=remote['port'])
+            except Exception as e:
+                self.log.error('Error starting rlink {link_id}: {error}', link_id=remote_link_id, error=e)
+
+        # Stop RLinks that are no longer in the discovery result
+        for linkid, link in self._links.items():
+            if linkid.startswith(link_id) and linkid not in ['{}.{}'.format(link_id, link['name'] or link['host']) for link in discovery_result]:
+                yield self.stop_link(linkid, caller)
+
+
+    @inlineCallbacks
+    def _on_session_join(self, session_details):
+        if not session_details['authrole'] == 'rlink':
+            return
+
+        authid = session_details['authid']
+        #find template
+        for linkid, template in self._link_templates.items():
+            if authid.startswith(template.config.authid):
+                self._discovery_trigger_sessions[session_details['session']] = linkid
+                discovery_result = yield template.local.call(template.config.discovery_uri)
+
+                # Schedule the discovery result to be processed in the next reactor loop
+                self.controller._reactor.callLater(0, self._process_discovery_result, linkid, template.config,
+                                                   discovery_result, authid)
+                break
+
+    def _on_session_leave(self, session_id):
+        if session_id in self._discovery_trigger_sessions:
+            linkid = self._discovery_trigger_sessions[session_id]
+            del self._discovery_trigger_sessions[session_id]
+
+            # Schedule the re-discovery with a delay to possibly disconnect links to peers that are no longer available
+            self.controller._reactor.callLater(30, self._run_discovery, linkid)
+
+    @inlineCallbacks
     def start_link(self, link_id, link_config, caller):
         assert type(link_id) == str
         assert isinstance(link_config, RLinkConfig)
@@ -1130,12 +1335,63 @@ class RLinkManager(object):
         if link_id in self._links:
             raise ApplicationError('crossbar.error.already_running', 'router link {} already running'.format(link_id))
 
+        if link_config.template:
+            # run discovery
+
+            try:
+                local_realm = self._realm.config['name']
+                local_authid = util.generate_serial_number()
+                local_authrole = 'trusted'
+                template_session_config = ComponentConfig(local_realm)
+                local_session = ApplicationSession(template_session_config)
+                # connect the local session
+                self._realm.controller._router_session_factory.add(local_session,
+                                                                   self._realm.router,
+                                                                   authid=local_authid,
+                                                                   authrole=local_authrole)
+
+                discovery_result = yield local_session.call(link_config.discovery_uri)
+                assert type(discovery_result) == list
+
+                # Schedule the discovery result to be processed in the next reactor loop
+                self.controller._reactor.callLater(0, self._process_discovery_result, link_id, link_config,
+                                                   discovery_result, caller)
+                rlink = RLinkTemplate(link_id, link_config, local_session)
+                self._link_templates[link_id] = rlink
+
+                if link_config.reciprocate and not self.subscribed_to_session_events:
+                    self.subscribed_to_session_events = True
+                    yield local_session.subscribe(self._on_session_join,
+                                                  "wamp.session.on_join")
+                    yield local_session.subscribe(self._on_session_leave,
+                                                  "wamp.session.on_leave")
+
+                return rlink
+            except Exception as e:
+                raise ApplicationError('crossbar.error.discovery_failed',
+                                       'router link {} discovery failed: {}'.format(link_id, e))
+
+        else:
+            return self._start_rlink(link_id, link_id, link_config, caller)
+
+    def _on_loop_detected(self, rlink_id):
+        if rlink_id in self._links is not None:
+            link = self._links[rlink_id]
+            # Black list host/port
+            host = link.config.transport['endpoint']['host']
+            port = link.config.transport['endpoint']['port']
+            self._blacklist.append({'host': host, 'port': port})
+
+    @inlineCallbacks
+    def _start_rlink(self, link_group, link_id, link_config, caller):
+
+        self.log.info('Starting rlink {link_id}', link_id=link_id)
         # setup local session
         #
         local_extra = {
             'other': None,
             'on_ready': Deferred(),
-            'rlink': link_id,
+            'rlink': link_group,
             'rlink_id': link_id,
             'exclude_authid': link_config.exclude_authid,
             'exclude_authrole': link_config.exclude_authrole,
@@ -1144,7 +1400,6 @@ class RLinkManager(object):
             'forward_invocations': link_config.forward_local_invocations,
         }
         local_realm = self._realm.config['name']
-
         local_authid = link_config.authid or util.generate_serial_number()
         # Having local authrole be 'trusted' allows this RLink to see other RLinks
         # This may need to be changed in order to distinguish between actual trusted sessions and
@@ -1152,7 +1407,6 @@ class RLinkManager(object):
         local_authrole = link_config.authrole or 'trusted'
         local_config = ComponentConfig(local_realm, local_extra)
         local_session = RLinkLocalSession(local_config)
-
         # setup remote session
         #
         remote_extra = {
@@ -1166,27 +1420,28 @@ class RLinkManager(object):
             'exclude_uri': URIExclusions(link_config.exclude_uri),
             'forward_events': link_config.forward_remote_events,
             'forward_invocations': link_config.forward_remote_invocations,
+            'register_namespace': link_config.register_remote_namespace,
         }
         remote_realm = link_config.realm
         remote_config = ComponentConfig(remote_realm, remote_extra)
         remote_session = RLinkRemoteSession(remote_config)
-
         # cross-connect the two sessions
         #
         local_extra['other'] = remote_session
         remote_extra['other'] = local_session
-
         # the rlink
         #
         rlink = RLink(link_id, link_config)
         self._links[link_id] = rlink
         local_extra['tracker'] = rlink
-
         # create connecting client endpoint
         #
         connecting_endpoint = create_connecting_endpoint_from_config(link_config.transport['endpoint'],
                                                                      self._controller.cbdir, self._controller._reactor,
                                                                      self.log)
+
+        remote_runner = None
+
         try:
             # connect the local session
             #
@@ -1223,24 +1478,30 @@ class RLinkManager(object):
                                     auto_reconnect=True,
                                     endpoint=connecting_endpoint,
                                     reactor=self._controller._reactor)
-
+            rlink.remote_runner = remote_runner
             yield remote_extra['on_ready']
 
         except:
             # make sure to remove the half-initialized link from our map ..
             del self._links[link_id]
-
+            if remote_runner is not None:
+                remote_runner.stop()
             # .. and then re-raise
             raise
-
         # the router link is established: store final infos
         rlink.started = time_ns()
         rlink.started_by = caller
         rlink.local = local_session
         rlink.remote = remote_session
-
         return rlink
 
     @inlineCallbacks
     def stop_link(self, link_id, caller):
-        raise NotImplementedError()
+        if link_id in self._links:
+            rlink = self._links[link_id]
+            if rlink.remote_runner is not None:
+                rlink.remote_runner.stop()
+            del self._links[link_id]
+            yield rlink.local.leave()
+            yield rlink.remote.leave()
+
