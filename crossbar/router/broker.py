@@ -241,6 +241,19 @@ class Broker(object):
             for ar in publish.exclude_authrole:
                 receivers = receivers - self._router._authrole_to_sessions.get(ar, set())
 
+        # remove receivers appearing in forward_for
+        #
+        if publish.forward_for:
+
+            # map excluded session IDs to excluded sessions
+            exclude = set()
+            for f in publish.forward_for:
+                exclude.add(f['session'])
+
+            # filter receivers for sessions that forwarded this
+            if exclude:
+                receivers = receivers - exclude
+
         return receivers
 
     def processPublish(self, session, publish):
