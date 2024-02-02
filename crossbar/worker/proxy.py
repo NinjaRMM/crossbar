@@ -634,7 +634,7 @@ class ProxyFrontendSession(object):
                                authmethod=hlval(authmethod),
                                hello_result=hello_result)
 
-            #check if client disconnected while we were yielding to authenticator
+            # check if client disconnected while we were yielding to authenticator
             if not self.transport:
                 self.log.debug(
                     '{func} proxy frontend disconnected while processing hello in authenticator:'
@@ -661,11 +661,11 @@ class ProxyFrontendSession(object):
                     if not self.transport:
                         # we have not yet established a backend session, only authenticator session was used
                         self.log.debug('{func} proxy frontend disconnected while connecting backend session'
-                                ': session_id={session_id}, session={session}, details="{details}"',
-                                func=hltype(self._process_Hello),
-                                session_id=hlid(self._session_id),
-                                session=self,
-                                details=details)
+                                       ': session_id={session_id}, session={session}, details="{details}"',
+                                       func=hltype(self._process_Hello),
+                                       session_id=hlid(self._session_id),
+                                       session=self,
+                                       details=details)
                         self._controller.unmap_backend(self, session)
                         self._backend_session = None
                     else:
@@ -744,9 +744,9 @@ class ProxyFrontendSession(object):
                     # we have not yet established a backend session, only authenticator session was used
                     self.log.info('{func} frontend disconnected while processing pending'
                                   ' authentication {pending_auth}: {authresult}',
-                                   func=hltype(self._process_Authenticate),
-                                   pending_auth=self._pending_auth,
-                                   authresult=auth_result)
+                                  func=hltype(self._process_Authenticate),
+                                  pending_auth=self._pending_auth,
+                                  authresult=auth_result)
                 else:
                     if isinstance(auth_result, types.Accept):
                         try:
@@ -1506,6 +1506,7 @@ class ProxyConnection(object):
         topic = '{}.on_proxy_connection_stopped'.format(self._controller._uri_prefix)
         yield self._controller.publish(topic, self.marshal(), options=types.PublishOptions(acknowledge=True))
 
+
 class ProxyController(TransportController):
     """
     Controller for proxy workers. Manages:
@@ -1574,7 +1575,6 @@ class ProxyController(TransportController):
 
         # map: (realm_name, role_name) -> ProxyRoute
         self._service_sessions = {}
-
 
     def has_realm(self, realm: str) -> bool:
         """

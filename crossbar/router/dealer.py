@@ -214,7 +214,7 @@ class Dealer(object):
                 if invoke.timeout_call:
                     invoke.timeout_call.cancel()
                     invoke.timeout_call = None
-                    
+
                 invokes = self._callee_to_invocations[callee]
                 invokes.remove(invoke)
                 if not invokes:
