@@ -185,14 +185,16 @@ class Dealer(object):
         # if the caller on an in-flight invocation goes away
         # INTERRUPT the callee if supported
         is_rlink_session = (session._authrole == "rlink")
+        pending_messages = []
         if session in self._caller_to_invocations:
 
             # this needs to update all four places where we track invocations similar to _remove_invoke_request
             outstanding = self._caller_to_invocations.get(session, [])
             for invoke in outstanding:  # type: InvocationRequest
-                if invoke.canceled:
-                    continue
-                if invoke.callee is invoke.caller:  # if the calling itself - no need to notify
+                notify_callee = True
+                if invoke.canceled: #still need to remove the invocation
+                    notify_callee = False
+                if invoke.callee is invoke.caller:  # if the calling itself - no notification, will be cleaned up below
                     continue
                 callee = invoke.callee
                 if 'callee' not in callee._session_roles or not callee._session_roles['callee'] or \
@@ -203,32 +205,61 @@ class Dealer(object):
                         request=invoke.id,
                         session=session._session_id,
                     )
-                    continue
-                self.log.debug(
-                    "INTERRUPTing in-flight INVOKE with id={request} on"
-                    " session {session} (caller went away)",
-                    request=invoke.id,
-                    session=session._session_id,
-                )
+                    notify_callee = False
+
+                if notify_callee:
+                    self.log.debug(
+                        "INTERRUPTing in-flight INVOKE with id={request} on"
+                        " session {session} (caller went away)",
+                        request=invoke.id,
+                        session=session._session_id,
+                    )
+                    # send yields, collect messages that need to be sent out and send them all at once after
+                    # not calling self._router.send() here
+                    pending_message = (invoke.callee, message.Interrupt(
+                        request=invoke.id,
+                        mode=message.Cancel.KILLNOWAIT,
+                    ))
+
+                    pending_messages.append(pending_message)
 
                 if invoke.timeout_call:
                     invoke.timeout_call.cancel()
                     invoke.timeout_call = None
 
-                invokes = self._callee_to_invocations[callee]
-                invokes.remove(invoke)
-                if not invokes:
-                    del self._callee_to_invocations[callee]
+                invokes = self._callee_to_invocations.get(callee)
+                if invokes:
+                    invokes.remove(invoke)
+                    if not invokes:
+                        del self._callee_to_invocations[callee]
 
-                del self._invocations[invoke.id]
-                del self._invocations_by_call[(invoke.caller_session_id, invoke.call.request)]
+                try:
+                    del self._invocations[invoke.id]
+                except KeyError as ex:
+                    self.log.warn(
+                        "_invocations does not have invocation with id {invocation}",
+                        invocation=invoke.id,
+                    )
 
-                self._router.send(invoke.callee, message.Interrupt(
-                    request=invoke.id,
-                    mode=message.Cancel.KILLNOWAIT,
-                ))
-
+                try:
+                    del self._invocations_by_call[(invoke.caller_session_id, invoke.call.request)]
+                except KeyError as ex:
+                    self.log.warn(
+                        "_invocations_by_call does not have [{caller_session}, {invocation}]",
+                        invocation=invoke.id,
+                        caller_session=invoke.caller_session_id,
+                    )
+            # instead of calling _remove_invoke_request for each, we do 3 out of for in a loop, and 4th here
             del self._caller_to_invocations[session]
+
+        if pending_messages:
+            for callee, msg in pending_messages:
+                try:
+                    self._router.send(callee, msg)
+                except Exception as e:
+                    self.log.warn("Failed to send Interrupt message to callee: {ex}", ex=e)
+
+        caller_notifications = []
 
         if session in self._session_to_registrations:
 
@@ -247,26 +278,48 @@ class Dealer(object):
                     ApplicationError.CANCELED,
                     ["callee disconnected from in-flight request"],
                 )
-                # send this directly to the caller's session
-                # (it is possible the caller was disconnected and thus
-                # _transport is None before we get here though)
-                if invoke.caller._transport:
-                    invoke.caller._transport.send(reply)
+
+                caller_notifications.append((invoke.caller, reply))
 
                 if invoke.timeout_call:
                     invoke.timeout_call.cancel()
                     invoke.timeout_call = None
 
-                invokes = self._caller_to_invocations[invoke.caller]
-                invokes.remove(invoke)
-                if not invokes:
-                    del self._caller_to_invocations[invoke.caller]
+                caller_invokes = self._caller_to_invocations.get(invoke.caller)
+                if caller_invokes:
+                    caller_invokes.remove(invoke)
+                    if not caller_invokes:
+                        del self._caller_to_invocations[invoke.caller]
 
-                del self._invocations[invoke.id]
-                del self._invocations_by_call[(invoke.caller_session_id, invoke.call.request)]
+                try:
+                    del self._invocations[invoke.id]
+                except KeyError as ex:
+                    self.log.warn(
+                        "_invocations does not have invocation with id {invocation}",
+                        invocation=invoke.id,
+                    )
 
+                try:
+                    del self._invocations_by_call[(invoke.caller_session_id, invoke.call.request)]
+                except KeyError as ex:
+                    self.log.warn(
+                        "_invocations_by_call does not have [{caller_session}, {invocation}]",
+                        invocation=invoke.id,
+                        caller_session=invoke.caller_session_id,
+                    )
             if outstanding:
                 del self._callee_to_invocations[session]
+
+            if caller_notifications:
+                for caller, msg in caller_notifications:
+                    try:
+                        # send this directly to the caller's session
+                        # (it is possible the caller was disconnected and thus
+                        # _transport is None before we get here though)
+                        if caller._transport:
+                            caller._transport.send(msg)
+                    except Exception as e:
+                        self.log.warn("Failed to send Error message to caller: {ex}", ex=e)
 
             for registration in self._session_to_registrations[session]:
                 was_registered, was_last_callee, was_last_local_callee = self._registration_map.drop_observer(session, registration)
@@ -1194,17 +1247,26 @@ class Dealer(object):
         # all four places should always be updated together
         if invocation_request.id in self._invocations:
             del self._invocations[invocation_request.id]
-            invokes = self._callee_to_invocations[invocation_request.callee]
-            invokes.remove(invocation_request)
-            if not invokes:
-                del self._callee_to_invocations[invocation_request.callee]
+            callee_invokes = self._callee_to_invocations.get(invocation_request.callee)
+            if callee_invokes:
+                callee_invokes.remove(invocation_request)
 
-            invokes = self._caller_to_invocations[invocation_request.caller]
-            invokes.remove(invocation_request)
-            if not invokes:
-                del self._caller_to_invocations[invocation_request.caller]
+                if not callee_invokes:
+                    del self._callee_to_invocations[invocation_request.callee]
 
-            del self._invocations_by_call[invocation_request.caller_session_id, invocation_request.call.request]
+            caller_invokes = self._caller_to_invocations.get(invocation_request.caller)
+            if caller_invokes:
+                caller_invokes.remove(invocation_request)
+                if not caller_invokes:
+                    del self._caller_to_invocations[invocation_request.caller]
+            try:
+                del self._invocations_by_call[invocation_request.caller_session_id, invocation_request.call.request]
+            except KeyError as ex:
+                self.log.warn(
+                    "_invocations_by_call does not have [{caller_session}, {invocation}]",
+                    invocation=invocation_request.id,
+                    caller_session=invocation_request.caller_session_id,
+                )
 
     # noinspection PyUnusedLocal
     def processCancel(self, session, cancel):
