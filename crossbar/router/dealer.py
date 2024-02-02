@@ -930,12 +930,14 @@ class Dealer(object):
                 # get registrations active on the procedure called
                 registration = self._registration_map.best_matching_observation(call.procedure)
 
+                invocation_sent = False
                 # if the session disconnected while the authorization was being checked,
                 # 'registration' will be None, and we'll (correctly) fire an error.
                 if registration:
                     # now actually perform the invocation of the callee
-                    self._call(session, call, registration, authorization)
-                else:
+                    invocation_sent = self._call(session, call, registration, authorization)
+
+                if not invocation_sent:
                     reply = message.Error(message.Call.MESSAGE_TYPE, call.request, ApplicationError.NO_SUCH_PROCEDURE,
                                           ["no callee registered for procedure <{0}>".format(call.procedure)])
                     reply.correlation_id = call.correlation_id
@@ -1073,6 +1075,14 @@ class Dealer(object):
         else:
             # should not arrive here
             raise Exception("logic error")
+
+        # at this point callee should be determined
+        # check if callee is still connected
+        # If not checked here, _router.send() will silently not send anything,
+        # creating a mangling invocation / memory leak
+
+        if not callee._session_id or not callee._transport:
+            return False
 
         # new ID for the invocation
         #
