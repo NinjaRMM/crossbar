@@ -1386,6 +1386,7 @@ def check_websocket_options(options):
                 'auto_ping_timeout',
                 'auto_ping_size',
                 'auto_ping_restart_on_any_traffic',
+                'trust_x_forwarded_for_chain_max',
                 'enable_flash_policy',
                 'flash_policy',
                 'compression',
@@ -1418,6 +1419,7 @@ def check_websocket_options(options):
             'auto_ping_timeout': (False, [int]),
             'auto_ping_size': (False, [int]),
             'auto_ping_restart_on_any_traffic': (False, [bool]),
+            'trust_x_forwarded_for_chain_max': (False, [int]),
             'enable_flash_policy': (False, [bool]),
             'flash_policy': (False, []),  # FIXME not in docs
             'compression': (False, [Mapping]),

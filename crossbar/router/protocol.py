@@ -143,6 +143,7 @@ def set_websocket_options(factory, options):
             flashSocketPolicy=c.get("flash_policy", None),
             allowedOrigins=c.get("allowed_origins", ["*"]),
             allowNullOrigin=bool(c.get("allow_null_origin", True)),
+            trustXForwardedFor=c.get("trust_x_forwarded_for_chain_max", 0),
             perMessageCompressionAccept=per_msg_compression,
         )
     else:
