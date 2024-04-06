@@ -212,15 +212,11 @@ class RouterServiceAgent(ApplicationSession):
         """
         assert (filter_authroles is None or type(filter_authroles) == list)
         session_counts = {}
-        for session in self._router._session_id_to_session.values():
-            if not is_restricted_session(session):
-                if isinstance(session, RouterSession):
-                    auth_role = session._session_details.authrole
-                    if filter_authroles is None or auth_role in filter_authroles:
-                        if auth_role in session_counts:
-                            session_counts[auth_role] += 1
-                        else:
-                            session_counts[auth_role] = 1
+        for authrole, sessions in self._router._authrole_to_sessions.items():
+            if authrole != 'trusted':
+                if filter_authroles is None or authrole in filter_authroles:
+                    session_counts[authrole] = len(sessions)
+
 
         return session_counts
 
