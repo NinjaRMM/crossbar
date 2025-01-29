@@ -421,7 +421,7 @@ class BridgeSession(ApplicationSession):
                 raise RuntimeError("Internal error attempting rlink forwarding")
 
             procedure = details.procedure.removeprefix(namespace)
-            self.log.info(
+            self.log.debug(
                 'Received namespace invocation on uri={uri}, options={options} (caller={caller}, caller_authid={caller_authid}, caller_authrole={caller_authrole}, forward_for={forward_for})',
                 uri=procedure,
                 options=options,
@@ -432,7 +432,7 @@ class BridgeSession(ApplicationSession):
 
             this_forward = {
                 'session': details.caller,
-                'authid': details.caller_authrole,
+                'authid': details.caller_authid,
                 'authrole': details.caller_authrole,
             }
 
@@ -469,7 +469,7 @@ class BridgeSession(ApplicationSession):
                     ERR_MSG[0] = True
                 return
 
-            self.log.info(
+            self.log.debug(
                 "RLink forward-invoked call {dir} (options={options})",
                 dir=self.DIR,
                 options=options,
@@ -559,7 +559,7 @@ class BridgeSession(ApplicationSession):
 
                 this_forward = {
                     'session': details.caller,
-                    'authid': details.caller_authrole,
+                    'authid': details.caller_authid,
                     'authrole': details.caller_authrole,
                 }
 
