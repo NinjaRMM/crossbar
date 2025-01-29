@@ -1392,7 +1392,7 @@ class Dealer(object):
             reply = None
 
             # FIXME
-            disclose = True
+            disclose = False
 
             # set the disclosed callee and forward_for
             #
