@@ -1163,11 +1163,17 @@ class RLinkTemplate(object):
             def is_active(instance):
                 return instance.remote._active
 
-            active_links = filter(is_active, self.instances.values())
+            active_links = list(filter(is_active, self.instances.values()))  # Convert to a list
+
             if self.fanout:
                 targets = active_links
             else:
-                targets = random.choice(active_links)
+                if not active_links:  # Handle empty list case
+                    self.log.info(
+                        "No active links found for event mirroring. Skipping event mirroring."
+                    )
+                    return
+                targets = [random.choice(active_links)]  # Wrap in a list for iteration
 
             for rlink in targets:
                 if event_details.forward_for:
