@@ -335,6 +335,10 @@ class BridgeSession(ApplicationSession):
                 self.log.debug("Attempting to delete subscription {sub_id} from {me} that has no chained subscription",
                                sub_id=sub_id,
                                me=self)
+            elif not sub.active:
+                self.log.debug("Attempting to delete subscription {sub_id} from {me} that is no longer active",
+                               sub_id=sub_id,
+                               me=self)
             else:
                 yield sub.unsubscribe()
 
@@ -1314,7 +1318,9 @@ class RLinkTemplate(object):
             '{}.{}@{}'.format(self.id, dl['name'] or dl['host'], self._rlink_manager.controller.node_id) for dl in
             discovery_result]
 
-        for link_id, link in self.instances.items():
+        link_ids = list(self.instances.keys())
+        for link_id in link_ids:
+            link = self.instances[link_id]
             if not link.local._active or not link.remote._active:
                 broken_instances += 1
             if link_id.startswith(self.id) and link_id not in link_ids_from_discovery:
