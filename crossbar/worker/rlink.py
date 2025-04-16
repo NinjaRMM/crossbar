@@ -850,6 +850,8 @@ class RLinkLocalSession(BridgeSession):
             details=details,
             session=hlid(self._session_id))
 
+        self.transport._router._session_left(self, session_details=self, close_details=details)
+
         BridgeSession.onLeave(self, details)
 
 
