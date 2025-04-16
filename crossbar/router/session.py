@@ -84,7 +84,7 @@ class RouterApplicationSession(object):
             router.__class__.__name__ if router else type(router))
         assert (authid is None or isinstance(authid, str))
         assert (authrole is None or isinstance(authrole, str))
-        assert (authextra is None or type(authextra) == dict)
+        assert (authextra is None or isinstance(authextra, dict))
 
         self.log.debug(
             '{func}(session={session}, router={router}, authid="{authid}", authrole="{authrole}", authextra={authextra}, store={store})',
@@ -1283,9 +1283,9 @@ class RouterSessionFactory(object):
         """
         assert isinstance(session, ApplicationSession)
         assert isinstance(router, Router)
-        assert authid is None or type(authid) == str
-        assert authrole is None or type(authrole) == str
-        assert authextra is None or type(authextra) == dict
+        assert authid is None or isinstance(authid, str)
+        assert authrole is None or isinstance(authrole, str)
+        assert authextra is None or isinstance(authextra, dict)
 
         if session not in self._app_sessions:
             router_session = RouterApplicationSession(session,

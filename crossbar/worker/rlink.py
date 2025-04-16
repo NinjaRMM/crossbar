@@ -11,7 +11,7 @@ import random
 import socket
 
 from collections.abc import Mapping, Sequence
-from typing import Dict
+from typing import Dict, Any, Iterable, Iterator
 
 from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
 
@@ -98,8 +98,6 @@ class BridgeSession(ApplicationSession):
                                reg_id=reg_id,
                                me=self)
                 return
-
-            reg_details = link.details
 
             remote_registration = link.chained
             if remote_registration is None:
@@ -1550,6 +1548,77 @@ class RLinkConfig(object):
         return config
 
 
+class SerializableAuthExtra(dict):
+    """
+    Dict subclass that can hide selected keys from all forms of serialization
+    while keeping them fully accessible by direct lookup.
+    """
+    __slots__ = ("_hidden",)
+
+    # ---------- construction -------------------------------------------
+    def __init__(self, *args: Any, hidden: Iterable[Any] = (), **kwargs: Any):
+        """
+        Args:
+            *args, **kwargs: normal dict constructor args.
+            hidden: iterable of keys to hide initially.
+        """
+        super().__init__(*args, **kwargs)
+        self._hidden: set = set(hidden)
+
+    # ---------- public helpers -----------------------------------------
+    def hide(self, *keys: Any) -> None:
+        """Hide additional keys."""
+        self._hidden.update(keys)
+
+    def unhide(self, *keys: Any) -> None:
+        """Make keys visible again."""
+        self._hidden.difference_update(keys)
+
+    def hidden_keys(self) -> set:
+        """Return a *copy* of the hidden‑key set."""
+        return set(self._hidden)
+
+    def public_dict(self) -> Dict[Any, Any]:
+        """Return a plain dict containing only the visible items."""
+        return {k: v for k, v in self.items()}
+
+    # ---------- internal convenience -----------------------------------
+    def _is_visible(self, k: Any) -> bool:
+        return k not in self._hidden
+
+    # ---------- override core views ------------------------------------
+    def __iter__(self) -> Iterator:
+        return (k for k in super().keys() if self._is_visible(k))
+
+    def keys(self) -> Iterator:
+        return self.__iter__()
+
+    def items(self) -> Iterator:
+        return ((k, v) for k, v in super().items() if self._is_visible(k))
+
+    def values(self) -> Iterator:
+        return (v for k, v in super().items() if self._is_visible(k))
+
+    def __len__(self) -> int:
+        # Counting only visible keys keeps len() consistent with iteration.
+        return sum(1 for _ in self.__iter__())
+
+    # ---------- pickling support ---------------------------------------
+    def __getstate__(self):
+        # Save visible data plus the hidden‑key list.
+        return dict(self.public_dict()), self._hidden
+
+    def __setstate__(self, state):
+        data, hidden = state
+        self.update(data)
+        self._hidden = hidden
+
+    # ---------- representation -----------------------------------------
+    def __repr__(self) -> str:
+        visible = self.public_dict()
+        return f"{self.__class__.__name__}({visible}, hidden={list(self._hidden)})"
+
+
 class RLinkManager(object):
     """
     Router-to-router links manager.
@@ -1693,7 +1762,7 @@ class RLinkManager(object):
         self.log.info('Starting rlink {link_id}', link_id=link_id)
         # setup local session
         #
-        local_extra = {
+        local_extra = SerializableAuthExtra({
             'other': None,
             'on_ready': Deferred(),
             'rlink': link_group,
@@ -1705,7 +1774,8 @@ class RLinkManager(object):
             'events_mirroring_mode': link_config.local_events_mirrorring_mode,
             'forward_invocations': link_config.forward_local_invocations,
             'template': caller if isinstance(caller, RLinkTemplate) else None,
-        }
+        }, hidden=['on_ready', 'other', 'exclude_uri', 'template', 'tracker','rlink_manager'])
+        #
         local_realm = self._realm.config['name']
         local_authid = link_config.authid or util.generate_serial_number()
         # Having local authrole be 'trusted' allows this RLink to see other RLinks
@@ -1716,7 +1786,7 @@ class RLinkManager(object):
         local_session = RLinkLocalSession(local_config)
         # setup remote session
         #
-        remote_extra = {
+        remote_extra = SerializableAuthExtra({
             'rlink_manager': self,
             'other': None,
             'on_ready': Deferred(),
@@ -1730,7 +1800,8 @@ class RLinkManager(object):
             'forward_invocations': link_config.forward_remote_invocations,
             'register_namespace': link_config.register_remote_namespace,
             'template': caller if isinstance(caller, RLinkTemplate) else None,
-        }
+        }, hidden=['on_ready', 'other', 'exclude_uri', 'template', 'tracker', 'rlink_manager'])
+
         remote_realm = link_config.realm
         remote_config = ComponentConfig(remote_realm, remote_extra)
         remote_session = RLinkRemoteSession(remote_config)
