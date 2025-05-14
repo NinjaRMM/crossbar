@@ -209,7 +209,8 @@ class BridgeSession(ApplicationSession):
                 options = kwargs.pop('options', None)
 
                 self.log.debug(
-                    'Received event on uri={uri}, options={options} (publisher={publisher}, publisher_authid={publisher_authid}, publisher_authrole={publisher_authrole}, forward_for={forward_for})',
+                    '{session} Received event on uri={uri}, options={options} (publisher={publisher}, publisher_authid={publisher_authid}, publisher_authrole={publisher_authrole}, forward_for={forward_for})',
+                    session=self._session_id,
                     uri=uri,
                     options=options,
                     publisher=event_details.publisher,
@@ -218,11 +219,7 @@ class BridgeSession(ApplicationSession):
                     forward_for=event_details.forward_for)
 
                 assert event_details.publisher is not None
-                this_forward = {
-                    'session': event_details.publisher,
-                    'authid': event_details.publisher_authid,
-                    'authrole': event_details.publisher_authrole,
-                }
+
 
                 if event_details.forward_for:
                     # the event comes already forwarded from a router node
@@ -237,8 +234,26 @@ class BridgeSession(ApplicationSession):
                         return
 
                     forward_for = copy.deepcopy(event_details.forward_for)
+
+                    other_forward = {
+                        'session': self._other._session_id,
+                        'authid': self.other._authid,
+                        'authrole': self.other._authrole,
+                    }
+                    forward_for.append(other_forward)
+
+                    this_forward = {
+                        'session': self._session_id,
+                        'authid': self._authid,
+                        'authrole': event_details._authrole,
+                    }
                     forward_for.append(this_forward)
                 else:
+                    this_forward = {
+                        'session': event_details.publisher,
+                        'authid': event_details.publisher_authid,
+                        'authrole': event_details.publisher_authrole,
+                    }
                     forward_for = [this_forward]
 
                 options = PublishOptions(acknowledge=True,
@@ -254,11 +269,11 @@ class BridgeSession(ApplicationSession):
                     return
                 except ApplicationError as e:
                     if e.error not in ['wamp.close.normal']:
-                        self.log.warn('FAILED TO PUBLISH 1: {} {}'.format(type(e), str(e)))
+                        self.log.warn('FAILED TO PUBLISH 1: {etype} {exception}', etype=type(e), exception=str(e))
                     return
                 except Exception as e:
                     if not ERR_MSG[0]:
-                        self.log.warn('FAILED TO PUBLISH 2: {} {}'.format(type(e), str(e)))
+                        self.log.warn('FAILED TO PUBLISH 2: {etype} {exception}', etype=type(e), exception=str(e))
                         ERR_MSG[0] = True
                     return
 
@@ -340,7 +355,9 @@ class BridgeSession(ApplicationSession):
             else:
                 yield sub.unsubscribe()
 
-            del self._subs[sub_id]
+            # after possible co-routine call, recheck if the subscription is still in the local map
+            if self._subs.get(sub_id, None):
+                del self._subs[sub_id]
 
             self.log.debug("{me} unsubscribed from {uri} on {other}", me=self, other=other, uri=uri)
             returnValue(None)
@@ -463,11 +480,11 @@ class BridgeSession(ApplicationSession):
                 return
             except ApplicationError as e:
                 if e.error not in ['wamp.close.normal']:
-                    self.log.warn('FAILED TO CALL 1: {} {}'.format(type(e), str(e)))
+                    self.log.warn('FAILED TO CALL 1: {etype} {exception}', etype=type(e), exception=str(e))
                 return
             except Exception as e:
                 if not ERR_MSG[0]:
-                    self.log.warn('FAILED TO CALL 2: {} {}'.format(type(e), str(e)))
+                    self.log.warn('FAILED TO CALL 2: {etype} {exception}', etype=type(e), exception=str(e))
                     ERR_MSG[0] = True
                 return
 
@@ -590,11 +607,11 @@ class BridgeSession(ApplicationSession):
                     return
                 except ApplicationError as e:
                     if e.error not in ['wamp.close.normal']:
-                        self.log.warn('FAILED TO CALL 1: {} {}'.format(type(e), str(e)))
+                        self.log.warn('FAILED TO CALL 1: {etype} {exception}', etype=type(e), exception=str(e))
                     return
                 except Exception as e:
                     if not ERR_MSG[0]:
-                        self.log.warn('FAILED TO CALL 2: {} {}'.format(type(e), str(e)))
+                        self.log.warn('FAILED TO CALL 2: {etype} {exception}', etype=type(e), exception=str(e))
                         ERR_MSG[0] = True
                     return
 
@@ -1209,11 +1226,11 @@ class RLinkTemplate(object):
                     return
                 except ApplicationError as e:
                     if e.error not in ['wamp.close.normal']:
-                        self.log.warn('FAILED TO PUBLISH 1: {} {}'.format(type(e), str(e)))
+                        self.log.warn('FAILED TO PUBLISH 1: {etype} {exception}', etype=type(e), exception=str(e))
                     return
                 except Exception as e:
                     if not ERR_MSG[0]:
-                        self.log.warn('FAILED TO PUBLISH 2: {} {}'.format(type(e), str(e)))
+                        self.log.warn('FAILED TO PUBLISH 2: {etype} {exception}', etype=type(e), exception=str(e))
                         ERR_MSG[0] = True
                     return
 
