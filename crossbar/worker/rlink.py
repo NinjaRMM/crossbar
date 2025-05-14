@@ -245,7 +245,7 @@ class BridgeSession(ApplicationSession):
                     this_forward = {
                         'session': self._session_id,
                         'authid': self._authid,
-                        'authrole': event_details._authrole,
+                        'authrole': self._authrole,
                     }
                     forward_for.append(this_forward)
                 else:
