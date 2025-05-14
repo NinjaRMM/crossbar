@@ -220,7 +220,6 @@ class BridgeSession(ApplicationSession):
 
                 assert event_details.publisher is not None
 
-
                 if event_details.forward_for:
                     # the event comes already forwarded from a router node
                     def was_forwarded_by_this_rlink(f):
@@ -242,12 +241,12 @@ class BridgeSession(ApplicationSession):
                     }
                     forward_for.append(other_forward)
 
-                    this_forward = {
-                        'session': self._session_id,
-                        'authid': self._authid,
-                        'authrole': self._authrole,
-                    }
-                    forward_for.append(this_forward)
+                    # this_forward = {
+                    #     'session': self._session_id,
+                    #     'authid': self._authid,
+                    #     'authrole': self._authrole,
+                    # }
+                    # forward_for.append(this_forward)
                 else:
                     this_forward = {
                         'session': event_details.publisher,
@@ -263,7 +262,7 @@ class BridgeSession(ApplicationSession):
                                          forward_for=forward_for)
 
                 try:
-                    # pass original procedure uri to support whildcard events #1959
+                    # pass original topic uri to support whildcard events #1959
                     yield self.publish(event_details.topic or uri, *args, options=options, **kwargs)
                 except TransportLost:
                     return
