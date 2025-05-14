@@ -236,7 +236,7 @@ class BridgeSession(ApplicationSession):
                     forward_for = copy.deepcopy(event_details.forward_for)
 
                     other_forward = {
-                        'session': self._other._session_id,
+                        'session': self.other._session_id,
                         'authid': self.other._authid,
                         'authrole': self.other._authrole,
                     }
