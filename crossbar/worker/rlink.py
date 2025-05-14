@@ -234,19 +234,19 @@ class BridgeSession(ApplicationSession):
 
                     forward_for = copy.deepcopy(event_details.forward_for)
 
-                    other_forward = {
-                        'session': self.other._session_id,
-                        'authid': self.other._authid,
-                        'authrole': self.other._authrole,
-                    }
-                    forward_for.append(other_forward)
-
-                    # this_forward = {
-                    #     'session': self._session_id,
-                    #     'authid': self._authid,
-                    #     'authrole': self._authrole,
+                    # other_forward = {
+                    #     'session': self.other._session_id,
+                    #     'authid': self.other._authid,
+                    #     'authrole': self.other._authrole,
                     # }
-                    # forward_for.append(this_forward)
+                    # forward_for.append(other_forward)
+
+                    this_forward = {
+                        'session': self._session_id,
+                        'authid': self._authid,
+                        'authrole': self._authrole,
+                    }
+                    forward_for.append(this_forward)
                 else:
                     this_forward = {
                         'session': event_details.publisher,
