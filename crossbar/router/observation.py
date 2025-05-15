@@ -411,7 +411,7 @@ class UriObservationMap(object):
             #
             if not observation.observers:
                 was_last_observer = True
-                was_last_local_observer = True
+                was_last_local_observer = not is_rlink_observer
             else:
                 was_last_observer = False
                 was_last_local_observer = not is_rlink_observer and \

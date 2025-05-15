@@ -6,6 +6,7 @@
 #####################################################################################
 
 import copy
+import logging
 
 import txaio
 
@@ -137,6 +138,16 @@ class Broker(object):
 
                 exclude_authid = session._authid
 
+                self.log.debug('Detach dropping subscription {sub_id} ({match}:{topic}) by {session} {authid}. Was Subscribed={was_sub} Last={last}, Last Local={last_local}, Deleted={deleted}',
+                               sub_id=subscription.id,
+                               match = subscription.match,
+                               topic=subscription.uri,
+                               session=session._session_id,
+                               authid=session._authid,
+                               was_sub=was_subscribed,
+                               last=was_last_subscriber,
+                               last_local=was_last_local_subscriber,
+                               deleted=was_deleted)
                 # publish WAMP meta events, if we have a service session, but
                 # not for the meta API itself!
                 #
@@ -148,14 +159,11 @@ class Broker(object):
                         service_session = self._router._realm.session
 
                         # FIXME: what about exclude_authid as collected from forward_for? like we do elsewhere in this file!
-                        options = types.PublishOptions(
+                        on_unsubscribe_options = types.PublishOptions(
                             correlation_id=None,
                             correlation_is_anchor=True,
                             correlation_is_last=False,
                             exclude_authid=exclude_authid,
-                            exclude_authrole=['rlink'] if is_rlink_session else None,
-                            eligible_authrole=['rlink'] if was_last_local_subscriber and
-                                                           not was_last_subscriber else None,
                         )
 
                         if was_subscribed:
@@ -163,16 +171,24 @@ class Broker(object):
                                 'wamp.subscription.on_unsubscribe',
                                 session._session_id,
                                 subscription.id,
-                                options=options,
+                                options=on_unsubscribe_options,
                             )
 
                         if was_deleted or was_last_local_subscriber:
-                            options.correlation_is_last = True
+                            on_delete_options = types.PublishOptions(
+                                correlation_id=None,
+                                correlation_is_anchor=True,
+                                correlation_is_last=True,
+                                exclude_authid=exclude_authid,
+                                exclude_authrole=['rlink'] if is_rlink_session else None,
+                                eligible_authrole=['rlink'] if was_last_local_subscriber and
+                                                               not was_last_subscriber else None,
+                            )
                             service_session.publish(
                                 'wamp.subscription.on_delete',
                                 session._session_id,
                                 subscription.id,
-                                options=options,
+                                options=on_delete_options,
                             )
 
                     # we postpone actual sending of meta events until we return to this client session
@@ -1094,6 +1110,18 @@ class Broker(object):
             if unsubscribe and unsubscribe.forward_for:
                 exclude_authid = [ff['authid'] for ff in unsubscribe.forward_for]
 
+            self.log.debug(
+                '_unsubscribe dropping subscription {sub_id} ({match}:{topic}) by {session} {authid}. Was Subscribed={was_sub} Last={last}, Last Local={last_local}, Deleted={deleted}',
+                sub_id=subscription.id,
+                match=subscription.match,
+                topic=subscription.uri,
+                session=session._session_id,
+                authid=session._authid,
+                was_sub=was_subscribed,
+                last=was_last_subscriber,
+                last_local=was_last_local_subscriber,
+                deleted=was_deleted)
+
             def _publish():
                 service_session = self._router._realm.session
 
@@ -1103,8 +1131,6 @@ class Broker(object):
                         correlation_is_anchor=False,
                         correlation_is_last=False,
                         exclude_authid=exclude_authid,
-                        exclude_authrole=['rlink'] if is_rlink_session else None,
-                        eligible_authrole=['rlink'] if was_last_local_subscriber and not was_last_subscriber else None,
                     )
                 else:
                     options = None
@@ -1118,14 +1144,21 @@ class Broker(object):
                     )
 
                 if was_deleted or was_last_local_subscriber:
-                    if options:
-                        options.correlation_is_last = True
+                    on_delete_options = types.PublishOptions(
+                        correlation_id=None,
+                        correlation_is_anchor=True,
+                        correlation_is_last=True,
+                        exclude_authid=exclude_authid,
+                        exclude_authrole=['rlink'] if is_rlink_session else None,
+                        eligible_authrole=['rlink'] if was_last_local_subscriber and
+                                                       not was_last_subscriber else None,
+                    )
 
                     service_session.publish(
                         'wamp.subscription.on_delete',
                         session._session_id,
                         subscription.id,
-                        options=options,
+                        options=on_delete_options,
                     )
 
             # we postpone actual sending of meta events until we return to this client session

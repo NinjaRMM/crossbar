@@ -209,7 +209,8 @@ class BridgeSession(ApplicationSession):
                 options = kwargs.pop('options', None)
 
                 self.log.debug(
-                    '{session} Received event on uri={uri}, options={options} (publisher={publisher}, publisher_authid={publisher_authid}, publisher_authrole={publisher_authrole}, forward_for={forward_for})',
+                    '{session} Received event {publication} on uri={uri}, options={options} (publisher={publisher}, publisher_authid={publisher_authid}, publisher_authrole={publisher_authrole}, forward_for={forward_for})',
+                    publication=event_details.publication,
                     session=self._session_id,
                     uri=uri,
                     options=options,
