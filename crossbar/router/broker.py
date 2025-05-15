@@ -123,6 +123,8 @@ class Broker(object):
         """
         if session in self._session_to_subscriptions:
 
+            is_rlink_session = (session._authrole == 'rlink')
+
             for subscription in self._session_to_subscriptions[session]:
 
                 was_subscribed, was_last_subscriber, was_last_local_subscriber = self._subscription_map.drop_observer(session, subscription)
@@ -134,7 +136,6 @@ class Broker(object):
                     was_deleted = True
                     self._subscription_map.delete_observation(subscription)
 
-                is_rlink_session = (session._authrole == 'rlink')
 
                 exclude_authid = session._authid
 
@@ -155,7 +156,7 @@ class Broker(object):
                    self._router._realm.session and \
                    not subscription.uri.startswith('wamp.'):
 
-                    def _publish(subscription):
+                    def _publish(subscription, was_subscribed_l, was_deleted_l, was_last_subscriber_l, was_last_local_subscriber_l):
                         service_session = self._router._realm.session
 
                         # FIXME: what about exclude_authid as collected from forward_for? like we do elsewhere in this file!
@@ -166,7 +167,7 @@ class Broker(object):
                             exclude_authid=exclude_authid,
                         )
 
-                        if was_subscribed:
+                        if was_subscribed_l:
                             service_session.publish(
                                 'wamp.subscription.on_unsubscribe',
                                 session._session_id,
@@ -174,15 +175,15 @@ class Broker(object):
                                 options=on_unsubscribe_options,
                             )
 
-                        if was_deleted or was_last_local_subscriber:
+                        if was_deleted_l or was_last_local_subscriber_l:
                             on_delete_options = types.PublishOptions(
                                 correlation_id=None,
                                 correlation_is_anchor=True,
                                 correlation_is_last=True,
                                 exclude_authid=exclude_authid,
                                 exclude_authrole=['rlink'] if is_rlink_session else None,
-                                eligible_authrole=['rlink'] if was_last_local_subscriber and
-                                                               not was_last_subscriber else None,
+                                eligible_authrole=['rlink'] if was_last_local_subscriber_l and
+                                                               not was_last_subscriber_l else None,
                             )
                             service_session.publish(
                                 'wamp.subscription.on_delete',
@@ -192,7 +193,7 @@ class Broker(object):
                             )
 
                     # we postpone actual sending of meta events until we return to this client session
-                    self._reactor.callLater(0, _publish, subscription)
+                    self._reactor.callLater(0, _publish, subscription, was_subscribed, was_deleted, was_last_subscriber, was_last_local_subscriber)
 
             del self._session_to_subscriptions[session]
 
