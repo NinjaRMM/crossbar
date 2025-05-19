@@ -144,6 +144,7 @@ def set_websocket_options(factory, options):
             allowedOrigins=c.get("allowed_origins", ["*"]),
             allowNullOrigin=bool(c.get("allow_null_origin", True)),
             trustXForwardedFor=c.get("trust_x_forwarded_for_chain_max", 0),
+            maxConnections=c.get("max_connections", None),
             perMessageCompressionAccept=per_msg_compression,
         )
     else:
