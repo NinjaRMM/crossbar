@@ -353,11 +353,11 @@ class BridgeSession(ApplicationSession):
                                sub_id=sub_id,
                                me=self)
             else:
+                # preemptively clear chained link and remove sub from map BEFORE unsubscribing (calling coroutine)
+                bridge_link.chained = None
+                del self._subs[sub_id]
                 yield sub.unsubscribe()
 
-            # after possible co-routine call, recheck if the subscription is still in the local map
-            if self._subs.get(sub_id, None):
-                del self._subs[sub_id]
 
             self.log.debug("{me} unsubscribed from {uri} on {other}", me=self, other=other, uri=uri)
             returnValue(None)
