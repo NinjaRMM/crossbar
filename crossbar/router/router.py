@@ -228,7 +228,7 @@ class Router(object):
         if self.realm != 'crossbar':
             self.log.debug(
                 'session "{session_id}" left realm "{realm}"',
-                session_id=session_details.session,
+                session_id=session._session_id,
                 realm=self.realm,
             )
             self.log.trace('{details}', details=session_details)
@@ -680,7 +680,7 @@ class RouterFactory(object):
         # extract name (URI in general) of realm from realm configuration
         assert 'name' in realm.config
         uri = realm.config['name']
-        assert type(uri) == str
+        assert isinstance(uri, str)
         self.log.info('{func}: realm={realm} with URI "{uri}"',
                       func=hltype(self.start_realm),
                       realm=realm,
