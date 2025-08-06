@@ -472,7 +472,7 @@ class BridgeSession(ApplicationSession):
             else:
                 forward_for = [this_forward]
 
-            options = CallOptions(forward_for=forward_for)
+            options = CallOptions(forward_for=forward_for, on_progress=details.progress)
 
             try:
                 result = yield other.call(procedure, *args, options=options, **kwargs)
