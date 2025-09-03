@@ -4,7 +4,7 @@
 #  SPDX-License-Identifier: EUPL-1.2
 #
 #####################################################################################
-import concurrent
+
 import copy
 import pprint
 import random
@@ -12,8 +12,9 @@ import socket
 
 from collections.abc import Mapping, Sequence
 from typing import Dict, Any, Iterable, Iterator
+import uuid
 
-from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
+from twisted.internet.defer import Deferred, inlineCallbacks, returnValue, DeferredSemaphore
 
 from autobahn import util
 from autobahn.wamp.types import SessionIdent
@@ -1025,7 +1026,12 @@ class RLinkRemoteSession(BridgeSession):
         # we are ready!
         on_ready = self.config.extra.get('on_ready', None)
         if on_ready and not on_ready.called:
+            self.log.info("RLink on_ready fired")
             self.config.extra['on_ready'].callback(self)
+        elif on_ready:         
+            self.log.info("RLink on_ready already fired")    
+        else:
+            self.log.info("RLink on_ready not set")    
 
         returnValue(None)
 
@@ -1121,7 +1127,9 @@ class RLinkTemplate(object):
         self._exclude_authrole = config.exclude_authrole
         self._exclude_uri = config.exclude_uri
 
-        self._scheduled_discovery = None
+        self._scheduled_discovery = None 
+        
+        self._discovery_semaphore = DeferredSemaphore(1)
 
     def is_uri_excluded(self, uri):
 
@@ -1278,13 +1286,24 @@ class RLinkTemplate(object):
 
     @inlineCallbacks
     def _run_discovery(self):
+        discovery_id = uuid.uuid4()
+        self.log.info('Running discovery {discovery_id}', discovery_id=discovery_id)
         discovery_result = yield self.local.call(self.config.discovery_uri)
-        self._scheduled_discovery = None
-        self._process_discovery_result(discovery_result)
+        try:
+            self.log.info('Discovery finished {discovery_id}', discovery_id=discovery_id)
+            self._scheduled_discovery = None
+            # yield self._discovery_semaphore.acquire()
+            self.log.info('Processing discovery results {discovery_id}', discovery_id=discovery_id)
+            yield self._process_discovery_result(discovery_result)
+            self.log.info('Discovery results processing finished {discovery_id}', discovery_id=discovery_id)
+        except:
+            self.log.error('Error processing discovery results {discovery_id} - rescheduling discovery', discovery_id=discovery_id)
+            self.schedule_discovery()
+        # finally:    
+        #     self._discovery_semaphore.release()
 
     @inlineCallbacks
     def _process_discovery_result(self, discovery_result):
-
         template = self
         new_instances_found = 0
         broken_instances = 0
@@ -1318,7 +1337,10 @@ class RLinkTemplate(object):
 
                     if rlink is not None:
                         new_instances_found += 1
+                        self.log.info('Connected {rlink_id} to {host}:{port}', rlink_id=remote_link_id, 
+                                      host=remote['host'], port=remote['port'])
                         template.add_instance(remote_link_id, rlink)
+                        self.log.info('Instance added {rlink_id}', rlink_id=remote_link_id)
                     else:
                         self.log.info('Failed to connect {rlink_id} to {host}:{port}', rlink_id=remote_link_id,
                                       host=remote['host'], port=remote['port'])
@@ -1359,6 +1381,11 @@ class RLinkTemplate(object):
                 removed_instances=removed_instances,
                 broken_instances=broken_instances)
             self.schedule_discovery()
+        elif len(self.instances) == 0: 
+            self.log.info(
+                'RLink template {rlink_id} has no instances. Rescheduling discovery',
+                rlink_id=self.id)
+            self.schedule_discovery(timeout=60)
         else:
             self.log.info(
                 'RLink template {rlink_id} has {instances} instances. And has reached steady state.',
@@ -1877,10 +1904,13 @@ class RLinkManager(object):
                                     auto_reconnect=auto_reconnect,
                                     endpoint=connecting_endpoint,
                                     reactor=self._controller._reactor)
+            self.log.info('rlink {link_id} runner finished', link_id=link_id)
             yield remote_extra['on_ready']
+            self.log.info('rlink {link_id} on_ready finished', link_id=link_id)
             rlink.remote_runner = remote_runner
 
         except:
+            self.log.error('Error starting rlink {link_id}', link_id=link_id, exc_info=True)
             # make sure to remove the half-initialized link from our map ..
             del self._links[link_id]
             if local_session is not None:
