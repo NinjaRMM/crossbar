@@ -11,6 +11,7 @@ import random
 import socket
 
 from collections.abc import Mapping, Sequence
+from sys import exc_info
 from typing import Dict, Any, Iterable, Iterator
 
 from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
@@ -1840,12 +1841,12 @@ class RLinkManager(object):
                                                                      self.log)
 
         remote_runner = None
-
+        router_session = None
         try:
             # connect the local session
             #
             # Adding to the router session factory will NOT add session to role->session map
-            self._realm.controller._router_session_factory.add(local_session,
+            router_session = self._realm.controller._router_session_factory.add(local_session,
                                                                self._realm.router,
                                                                authid=local_authid,
                                                                authrole=local_authrole,
@@ -1877,14 +1878,20 @@ class RLinkManager(object):
                                     auto_reconnect=auto_reconnect,
                                     endpoint=connecting_endpoint,
                                     reactor=self._controller._reactor)
+            self.log.info('_start_rlink: Waiting to join session with {link_id} {link_url}', link_id=link_id,
+                           link_url=link_config.transport['url'])
             yield remote_extra['on_ready']
             rlink.remote_runner = remote_runner
 
-        except:
+        except Exception as e:
+            self.log.error('_start_rlink: Exception starting rlink {link_id} {link_url}', link_id=link_id,
+                            link_url=link_config.transport['url'], exc_info = True)
+
             # make sure to remove the half-initialized link from our map ..
             del self._links[link_id]
             if local_session is not None:
                 yield local_session.leave()
+                self._realm.controller._router_session_factory.remove(local_session)
             if remote_runner is not None:
                 yield remote_runner.stop()
             if not auto_reconnect:
