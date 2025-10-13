@@ -959,11 +959,14 @@ class RLinkRemoteSession(BridgeSession):
             # sign the challenge with our private key.
             channel_id_type = 'tls-unique'
             channel_id_map = self._router_controller._transport.transport_details.channel_id
+            self.log.debug('{func}transport_details={transport_details}', func=hltype(self.onChallenge), transport_details=self._router_controller._transport.transport_details)
             if channel_id_type in channel_id_map:
                 channel_id = channel_id_map[channel_id_type]
+                self.log.debug('{func} using tls-unique with channel_id', func=hltype(self.onChallenge))
             else:
                 channel_id = None
                 channel_id_type = None
+                self.log.debug('{func} not using tls-unique with channel_id', func=hltype(self.onChallenge))
 
             # use WorkerController.get_public_key to call node controller
             # FIXME: await?
