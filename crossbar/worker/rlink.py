@@ -26,6 +26,8 @@ from autobahn.wamp.types import SubscribeOptions, PublishOptions, RegisterOption
 from autobahn.wamp.message import Event, Invocation, Unregistered
 from autobahn.wamp.exception import ApplicationError, TransportLost
 from autobahn.twisted.wamp import ApplicationSession, ApplicationRunner
+from autobahn.twisted.rawsocket import WampRawSocketClientProtocol
+from autobahn.twisted.util import transport_channel_id
 
 from txaio import make_logger, time_ns
 
@@ -958,12 +960,18 @@ class RLinkRemoteSession(BridgeSession):
 
             # sign the challenge with our private key.
             channel_id_type = 'tls-unique'
-            channel_id_map = self._router_controller._transport.transport_details.channel_id
-            if channel_id_type in channel_id_map:
-                channel_id = channel_id_map[channel_id_type]
-            else:
+            router_controller_transport_channel_id_map = self._router_controller._transport.transport_details.channel_id
+            session_transport_channel_id_map = self._transport.transport_details.channel_id
+
+            channel_id = router_controller_transport_channel_id_map.get(channel_id_type, session_transport_channel_id_map.get(channel_id_type, None))
+            if channel_id is None:                        
                 channel_id = None
                 channel_id_type = None
+            else:
+                # there is a bug somewhere in autobahn that has the server using the client's finished message instead of its own
+                # so we need to invert is_server so client and server both get the same channel_id
+                is_server = isinstance(self._transport, WampRawSocketClientProtocol) 
+                channel_id = transport_channel_id(self._transport.transport, is_server, channel_id_type)
 
             # use WorkerController.get_public_key to call node controller
             # FIXME: await?
