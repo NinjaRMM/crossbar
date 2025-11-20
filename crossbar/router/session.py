@@ -412,15 +412,14 @@ class RouterSession(BaseSession):
         self._session_details = None
         self._service_session = None
 
-    def onOpen(self, transport: Union[WampWebSocketServerProtocol, WampRawSocketServerProtocol,
-                                      NativeWorkerClientProtocol, MagicMock]):
+    def onOpen(self, transport):
         """
         Implements :func:`autobahn.wamp.interfaces.ITransportHandler.onOpen`
         """
         # this is a WAMP transport instance
-        assert isinstance(transport,
-                          (WampWebSocketServerProtocol, WampRawSocketServerProtocol, NativeWorkerClientProtocol,
-                           MagicMock)), 'unexpected router transport type {}'.format(type(transport))
+        # assert isinstance(transport,
+        #                   (WampWebSocketServerProtocol, WampRawSocketServerProtocol, NativeWorkerClientProtocol,
+        #                    MagicMock)), 'unexpected router transport type {}'.format(type(transport))
         self._transport = transport
 
         # transport configuration
