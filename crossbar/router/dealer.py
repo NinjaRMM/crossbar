@@ -332,18 +332,18 @@ class Dealer(object):
                 #
                 if self._router._realm and self._router._realm.session and not registration.uri.startswith('wamp.'):
 
-                    def _publish(registration):
+                    def _publish(registration, was_registered_l, was_last_callee_l, was_last_local_callee_l):
                         service_session = self._router._realm.session
 
                         # FIXME: what about exclude_authid as collected from forward_for? like we do elsewhere in this file!
                         options = types.PublishOptions(
                             correlation_id=None,
                             exclude_authrole=['rlink'] if is_rlink_session else None,
-                            eligible_authrole=['rlink'] if was_last_local_callee and
-                                                             not was_last_callee else None,
+                            eligible_authrole=['rlink'] if was_last_local_callee_l and
+                                                             not was_last_callee_l else None,
                         )
 
-                        if was_registered:
+                        if was_registered_l:
                             service_session.publish(
                                 'wamp.registration.on_unregister',
                                 session._session_id,
@@ -351,7 +351,7 @@ class Dealer(object):
                                 options=options,
                             )
 
-                        if was_last_callee or was_last_local_callee:
+                        if was_last_callee_l or was_last_local_callee_l:
                             service_session.publish(
                                 'wamp.registration.on_delete',
                                 session._session_id,
@@ -370,7 +370,7 @@ class Dealer(object):
                                                     registration.id, registration_details)
 
                     # we postpone actual sending of meta events until we return to this client session
-                    self._reactor.callLater(0, _publish, registration)
+                    self._reactor.callLater(0, _publish, registration, was_registered, was_last_callee, was_last_local_callee)
 
             del self._session_to_registrations[session]
 

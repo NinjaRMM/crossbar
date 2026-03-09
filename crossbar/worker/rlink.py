@@ -869,6 +869,12 @@ class RLinkLocalSession(BridgeSession):
             details=details,
             session=hlid(self._session_id))
 
+        self._subs = {}
+        self._regs = {}
+        self._active = False
+        self.other = None
+        self.config.extra['other'] = None
+
         self.transport._router._session_left(self, session_details=self, close_details=details)
 
         BridgeSession.onLeave(self, details)
@@ -1044,14 +1050,17 @@ class RLinkRemoteSession(BridgeSession):
         # This avoids duplicate events that would otherwise arrive
         # See: https://github.com/crossbario/crossbar/issues/1916
         for k, v in self._subs.items():
-            if v.chained.active:
+            if v.chained is not None and v.chained.active:
                 yield v.chained.unsubscribe()
 
         self._subs = {}
+        self._regs = {}
 
         self._active = False
 
-        self.config.extra['other']._tracker.connected = False
+        local_session = self.config.extra['other']
+        if local_session is not None:
+            local_session._tracker.connected = False
         self.log.warn(
             '{klass}.onLeave(): rlink remote session left! (realm={realm}, authid={authid}, authrole={authrole}, session={session}, details={details}) {method}',
             klass=self.__class__.__name__,
@@ -1063,6 +1072,7 @@ class RLinkRemoteSession(BridgeSession):
             details=details)
 
         self.other = None
+        self.config.extra['other'] = None
         BridgeSession.onLeave(self, details)
 
         if details.reason == 'wamp.error.loop_detected':
