@@ -435,6 +435,21 @@ class RouterController(TransportController):
         rlm = self.realms[realm_id]
         realm_name = rlm.config['name']
 
+        # stop all active rlinks so their remote_runner objects are properly shut
+        # down; without this they keep reconnecting to the remote router after the
+        # realm is gone and are never GC'd
+        rlink_manager = rlm.rlink_manager
+        for link_id in list(rlink_manager._links.keys()):
+            try:
+                yield rlink_manager.stop_link(link_id, None)
+            except Exception:
+                pass
+        for link_id in list(rlink_manager._link_templates.keys()):
+            try:
+                yield rlink_manager.stop_link(link_id, None)
+            except Exception:
+                pass
+
         # stop the RouterServiceAgent living on the realm
         yield rlm.session.leave()
         self._router_session_factory.remove(rlm.session)
