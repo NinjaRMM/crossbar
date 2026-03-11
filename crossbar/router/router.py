@@ -220,6 +220,8 @@ class Router(object):
         if not self._authid_to_sessions[session_details.authid]:
             del self._authid_to_sessions[session_details.authid]
         self._authrole_to_sessions[session_details.authrole].discard(session)
+        if not self._authrole_to_sessions[session_details.authrole]:
+            del self._authrole_to_sessions[session_details.authrole]
 
         if self._store:
             self._store.store_session_left(session, close_details)
@@ -412,6 +414,10 @@ class Router(object):
 
         if role.uri in self._roles:
             del self._roles[role.uri]
+            # purge stale cached authorization decisions for this role
+            stale_keys = [k for k in self._authorization_cache if k[1] == role.uri]
+            for k in stale_keys:
+                del self._authorization_cache[k]
             return True
         else:
             return False

@@ -523,6 +523,9 @@ class Broker(object):
                                 observation.extra.retained_events = [retained_event]
                             else:
                                 observation.extra.retained_events.append(retained_event)
+                                # cap to avoid unbounded growth from repeated targeted retained publishes
+                                if len(observation.extra.retained_events) > 100:
+                                    observation.extra.retained_events = observation.extra.retained_events[-100:]
                         else:
                             observation.extra.retained_events = [retained_event]
 

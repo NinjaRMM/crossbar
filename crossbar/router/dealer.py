@@ -326,6 +326,9 @@ class Dealer(object):
 
                 if was_registered and was_last_callee:
                     self._registration_map.delete_observation(registration)
+                    # discard any queued calls for this registration
+                    if self._call_store:
+                        self._call_store.delete_queued_calls(registration.id)
 
                 # publish WAMP meta events, if we have a service session, but
                 # not for the meta API itself!
@@ -725,6 +728,10 @@ class Dealer(object):
         if was_registered and was_last_callee:
             self._registration_map.delete_observation(registration)
             was_deleted = True
+            # discard any queued calls for this registration; without this, QueuedCall
+            # objects (holding session/call references) would be retained indefinitely
+            if self._call_store:
+                self._call_store.delete_queued_calls(registration.id)
 
         # remove registration from session->registrations map
         #
@@ -1222,6 +1229,9 @@ class Dealer(object):
                 The timeout was reacted; send an ERROR to the caller and INTERRUPT
                 to the callee
                 """
+                # clear timeout_call before calling _remove_invoke_request so it
+                # doesn't try to cancel a timer that has already fired
+                invoke_request.timeout_call = None
                 if _can_cancel(invoke_request.caller, 'caller'):
                     self._router.send(
                         invoke_request.caller,

@@ -301,5 +301,11 @@ class RealmStoreMemory(object):
         if registration.id in self._queued_calls and self._queued_calls[registration.id]:
             return self._queued_calls[registration.id].popleft()
 
+    def delete_queued_calls(self, registration_id: int):
+        """
+        Implements :meth:`crossbar._interfaces.IRealmStore.delete_queued_calls`
+        """
+        self._queued_calls.pop(registration_id, None)
+
 
 IRealmStore.register(RealmStoreMemory)

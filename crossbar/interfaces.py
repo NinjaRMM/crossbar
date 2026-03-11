@@ -294,6 +294,14 @@ class IRealmStore(abc.ABC):
         :return:
         """
 
+    @abc.abstractmethod
+    def delete_queued_calls(self, registration_id: int):
+        """
+        Delete all queued calls for the given registration ID, releasing any held references.
+
+        :param registration_id: The ID of the registration whose call queue should be discarded.
+        """
+
 
 class IInventory(abc.ABC):
     """

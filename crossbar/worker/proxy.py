@@ -126,6 +126,7 @@ class ProxyFrontendSession(object):
         self._authmethod = None
         self._authprovider = None
         self._authextra = None
+        self._pending_auth = None
 
         self._custom_authextra = {}
 
@@ -2127,10 +2128,43 @@ class ProxyController(TransportController):
         yield route.stop()
         del self._routes[realm_name][route_id]
 
+        # clean up _connections_by_auth, _roundrobin_idx, and cached service sessions
+        # for each (realm, role) this route contributed
+        for role_name, connection_id in route.config.items():
+            key = (realm_name, role_name)
+            if key in self._connections_by_auth:
+                connection = self._connections.get(connection_id)
+                if connection is not None:
+                    self._connections_by_auth[key].discard(connection)
+                if not self._connections_by_auth[key]:
+                    del self._connections_by_auth[key]
+                    self._roundrobin_idx.pop(key, None)
+                    # leave and remove any cached service session for this (realm, role)
+                    _realm_sessions = self._service_sessions.get(realm_name)
+                    if isinstance(_realm_sessions, dict) and role_name in _realm_sessions:
+                        _s = _realm_sessions.pop(role_name)
+                        if isinstance(_s, ApplicationSession):
+                            try:
+                                _s.leave()
+                            except Exception:
+                                pass
+                        elif isinstance(_s, Deferred) and not _s.called:
+                            _s.addCallback(lambda s: s.leave() if isinstance(s, ApplicationSession) else None)
+                            _s.addErrback(lambda _: None)
+
+        # clean up _routes_by_connection for this route
+        for connection_id in set(route.config.values()):
+            if connection_id in self._routes_by_connection:
+                self._routes_by_connection[connection_id].discard(route)
+                if not self._routes_by_connection[connection_id]:
+                    del self._routes_by_connection[connection_id]
+
         # If all routes are stopped, clear the realm from routes map
         # Relevant discussion: https://github.com/crossbario/crossbar/pull/1968
         if len(self._routes[realm_name]) == 0:
             del self._routes[realm_name]
+            # clean up any remaining cached service session entries for this realm
+            self._service_sessions.pop(realm_name, None)
 
         returnValue(route.marshal())
 
@@ -2218,6 +2252,31 @@ class ProxyController(TransportController):
         connection = self._connections[connection_id]
         yield connection.stop()
         del self._connections[connection_id]
+
+        # clean up _connections_by_auth, _roundrobin_idx, and cached service sessions:
+        # remove this connection from all sets, purge any empty keys
+        empty_keys = [key for key, conns in self._connections_by_auth.items() if connection in conns]
+        for key in empty_keys:
+            self._connections_by_auth[key].discard(connection)
+            if not self._connections_by_auth[key]:
+                del self._connections_by_auth[key]
+                self._roundrobin_idx.pop(key, None)
+                # leave and remove any cached service session for this (realm, role)
+                _realm, _role = key
+                _realm_sessions = self._service_sessions.get(_realm)
+                if isinstance(_realm_sessions, dict) and _role in _realm_sessions:
+                    _s = _realm_sessions.pop(_role)
+                    if isinstance(_s, ApplicationSession):
+                        try:
+                            _s.leave()
+                        except Exception:
+                            pass
+                    elif isinstance(_s, Deferred) and not _s.called:
+                        _s.addCallback(lambda s: s.leave() if isinstance(s, ApplicationSession) else None)
+                        _s.addErrback(lambda _: None)
+
+        # clean up _routes_by_connection
+        self._routes_by_connection.pop(connection_id, None)
 
         returnValue(connection.marshal())
 

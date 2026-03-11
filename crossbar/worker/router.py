@@ -444,6 +444,7 @@ class RouterController(TransportController):
 
         del self.realms[realm_id]
         del self.realm_to_id[realm_name]
+        self._service_sessions.pop(realm_name, None)
 
         realm_stopped = {'id': realm_id, 'name': realm_name, 'detached_sessions': sorted(detached_sessions)}
 

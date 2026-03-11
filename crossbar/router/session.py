@@ -530,6 +530,9 @@ class RouterSession(BaseSession):
                     resumable=False,
                     resume_token=None,
                     transport=td)
+                # authentication is complete; release pending auth object
+                # (it holds references to transport details, key material, realm container, etc.)
+                self._pending_auth = None
                 self.onJoin(session_details)
 
             # the first message MUST be HELLO
@@ -753,6 +756,7 @@ class RouterSession(BaseSession):
         self._authrole = None
         self._authmethod = None
         self._authprovider = None
+        self._pending_auth = None
 
     def leave(self, reason=None, message=None):
         """
@@ -1170,6 +1174,11 @@ class RouterSession(BaseSession):
 
             for msg in self._testaments["destroyed"]:
                 self._router.process(self, msg)
+
+            # clear testaments after processing so they are not re-published if the
+            # session re-joins on the same transport, and to release message references
+            self._testaments["detached"] = []
+            self._testaments["destroyed"] = []
 
             self._router._session_left(self, self._session_details, details)
 

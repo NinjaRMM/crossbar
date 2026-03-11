@@ -350,10 +350,12 @@ class BridgeSession(ApplicationSession):
                 self.log.debug("Attempting to delete subscription {sub_id} from {me} that has no chained subscription",
                                sub_id=sub_id,
                                me=self)
+                del self._subs[sub_id]
             elif not sub.active:
                 self.log.debug("Attempting to delete subscription {sub_id} from {me} that is no longer active",
                                sub_id=sub_id,
                                me=self)
+                del self._subs[sub_id]
             else:
                 # preemptively clear chained link and remove sub from map BEFORE unsubscribing (calling coroutine)
                 bridge_link.chained = None
@@ -706,10 +708,19 @@ class BridgeSession(ApplicationSession):
                     "Attempting to delete registration {reg_id} from {me} that is has no remote registration id",
                     reg_id=reg_id,
                     me=self)
+                del self._regs[reg_id]
+            elif not remote_registration.active:
+                self.log.debug(
+                    "Attempting to delete registration {reg_id} from {me} that is no longer active",
+                    reg_id=reg_id,
+                    me=self)
+                del self._regs[reg_id]
             else:
+                # preemptively clear chained link and remove reg from map BEFORE unregistering
+                # so that cleanup is guaranteed even if unregister() raises
+                link.chained = None
+                del self._regs[reg_id]
                 yield remote_registration.unregister()
-
-            del self._regs[reg_id]
 
             self.log.debug("deleted forwarding registration of {uri} on {me}", uri=uri, me=self)
             returnValue(None)
@@ -1054,6 +1065,13 @@ class RLinkRemoteSession(BridgeSession):
                 yield v.chained.unsubscribe()
 
         self._subs = {}
+
+        # also unregister any procedures registered on the local-leg by this remote session;
+        # without this, those local registrations would persist and forward calls to a gone remote
+        for k, v in self._regs.items():
+            if v.chained is not None and v.chained.active:
+                yield v.chained.unregister()
+
         self._regs = {}
 
         self._active = False
@@ -1280,6 +1298,7 @@ class RLinkTemplate(object):
                 rlink.remote_runner.stop()
                 rlink.local.leave()
                 self.remove_instance(remote_link_id)
+                self._rlink_manager._links.pop(remote_link_id, None)
 
             rlink.remote.on('leave', on_remote_leave)
 

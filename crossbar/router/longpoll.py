@@ -275,6 +275,7 @@ class WampLongPollResourceSession(Resource):
         self.putChild(b"close", self._close)
 
         self._isalive = False
+        self._kill_timer = None
 
         # kill inactive sessions after this timeout
         #
@@ -282,6 +283,7 @@ class WampLongPollResourceSession(Resource):
         if killAfter > 0:
 
             def killIfDead():
+                self._kill_timer = None
                 if not self._isalive:
                     self.log.debug(
                         "WampLongPoll: killing inactive WAMP session with transport '{tid}'",
@@ -299,9 +301,9 @@ class WampLongPollResourceSession(Resource):
                     )
 
                     self._isalive = False
-                    self.reactor.callLater(killAfter, killIfDead)
+                    self._kill_timer = self.reactor.callLater(killAfter, killIfDead)
 
-            self.reactor.callLater(killAfter, killIfDead)
+            self._kill_timer = self.reactor.callLater(killAfter, killIfDead)
         else:
             self.log.debug(
                 "WampLongPoll: transport '{tid}' automatic killing of inactive session disabled",
@@ -326,6 +328,9 @@ class WampLongPollResourceSession(Resource):
         Implements :func:`autobahn.wamp.interfaces.ITransport.close`
         """
         if self.isOpen():
+            if self._kill_timer and self._kill_timer.active():
+                self._kill_timer.cancel()
+                self._kill_timer = None
             self.onClose(True, 1000, "session closed")
             self._receive._kill()
             del self._parent._transports[self._transport_id]
@@ -337,6 +342,9 @@ class WampLongPollResourceSession(Resource):
         Implements :func:`autobahn.wamp.interfaces.ITransport.abort`
         """
         if self.isOpen():
+            if self._kill_timer and self._kill_timer.active():
+                self._kill_timer.cancel()
+                self._kill_timer = None
             self.onClose(True, 1000, "session aborted")
             self._receive._kill()
             del self._parent._transports[self._transport_id]

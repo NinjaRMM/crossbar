@@ -142,11 +142,17 @@ class RouterServiceAgent(ApplicationSession):
         # register our API on all configured sessions and then fire onready
         #
         on_ready = self.config.extra.get('onready', None) if self.config.extra else None
+        # track registrations made on EXTERNAL sessions (e.g. the management session when
+        # bridge_meta_api is enabled); own-session registrations are cleaned up automatically
+        # when this session leaves, but external ones are not.
+        self._external_registrations: List[Registration] = []
         try:
             for session, prefix, _ in self._expose_on_sessions:
                 regs = yield session.register(self, options=RegisterOptions(details_arg='details'), prefix=prefix)
                 for reg in regs:
                     if isinstance(reg, Registration):
+                        if session is not self:
+                            self._external_registrations.append(reg)
                         self.log.debug('Registered WAMP meta procedure <{proc}> on realm "{realm}"',
                                        proc=reg.procedure,
                                        realm=session._realm)
@@ -184,11 +190,23 @@ class RouterServiceAgent(ApplicationSession):
             if on_ready:
                 on_ready.callback(self)
 
+    @inlineCallbacks
     def onLeave(self, details):
         self.log.info('{klass}: realm service session left (realm_name="{realm}", details={details})',
                       klass=self.__class__.__name__,
                       realm=self._realm,
                       details=details)
+
+        # unregister procedures registered on external sessions (e.g. the management session
+        # when bridge_meta_api is enabled); these persist on the external session after this
+        # service session leaves its own realm and must be explicitly removed
+        for reg in getattr(self, '_external_registrations', []):
+            if reg.active:
+                try:
+                    yield reg.unregister()
+                except Exception:
+                    pass
+        self._external_registrations = []
 
     def onUserError(self, failure, msg):
         # ApplicationError's are raised explicitly and by purpose to signal
