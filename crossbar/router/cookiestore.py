@@ -270,6 +270,9 @@ class CookieStoreMemoryBacked(CookieStore):
         was_existing = False
         if cbtid in self._cookies:
             del self._cookies[cbtid]
+            # also drop the connection-set so the entry doesn't linger if dropProto
+            # is never called (e.g. connection already closed before logout)
+            self._connections.pop(cbtid, None)
             was_existing = True
 
         if was_existing:

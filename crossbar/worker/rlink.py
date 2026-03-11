@@ -885,6 +885,7 @@ class RLinkLocalSession(BridgeSession):
         self._active = False
         self.other = None
         self.config.extra['other'] = None
+        self.config.extra['on_ready'] = None
 
         self.transport._router._session_left(self, session_details=self, close_details=details)
 
@@ -1091,6 +1092,7 @@ class RLinkRemoteSession(BridgeSession):
 
         self.other = None
         self.config.extra['other'] = None
+        self.config.extra['on_ready'] = None
         BridgeSession.onLeave(self, details)
 
         if details.reason == 'wamp.error.loop_detected':
@@ -1963,6 +1965,23 @@ class RLinkManager(object):
                     pass
 
             del self._links[link_id]
+
+        if link_id in self._link_templates:
+            template = self._link_templates.pop(link_id)
+            # cancel any pending discovery timer
+            if template._scheduled_discovery is not None and template._scheduled_discovery.active():
+                template._scheduled_discovery.cancel()
+                template._scheduled_discovery = None
+            # stop all active instances spawned from this template
+            for instance_id in list(template.instances.keys()):
+                yield self.stop_link(instance_id, caller)
+            # leave the template's local session (used for session event subscriptions)
+            if template.local is not None:
+                try:
+                    yield template.local.leave()
+                except:
+                    pass
+                template.local = None
 
         returnValue(None)
 
