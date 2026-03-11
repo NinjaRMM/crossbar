@@ -1295,6 +1295,13 @@ class RLinkTemplate(object):
         self.local.publish(f"wamp.rlink.{self.id}.on_join", remote_link_id)
         if not self.config.reciprocate:
             def on_remote_leave(_session, _details):
+                # one-shot: remove this handler to break the cycle
+                # rlink.remote → _listeners → closure → rlink
+                if rlink.remote._listeners:
+                    try:
+                        rlink.remote._listeners['leave'].remove(on_remote_leave)
+                    except (KeyError, ValueError):
+                        pass
                 rlink.remote_runner.stop()
                 rlink.local.leave()
                 self.remove_instance(remote_link_id)

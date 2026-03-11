@@ -385,6 +385,13 @@ class ProxyFrontendSession(object):
                 backend.join(accept.realm, authmethods=authmethods, authid=backend_authid, authextra=authextra)
 
                 def backend_joined(session, details):
+                    # one-shot: remove this handler so the closure doesn't hold references
+                    # (backend → _listeners → closure → self/accept/result) beyond first fire
+                    if backend._listeners:
+                        try:
+                            backend._listeners['join'].remove(backend_joined)
+                        except (KeyError, ValueError):
+                            pass
                     self.log.debug('{func} proxy backend session joined (backend_session_id={backend_session_id})',
                                    backend_session_id=hlid(details.session),
                                    backend_session=session,
@@ -671,6 +678,13 @@ class ProxyFrontendSession(object):
                         self._backend_session = None
                     else:
                         def _on_backend_joined(session, details):
+                            # one-shot: remove this handler so the closure doesn't hold
+                            # references (session → _listeners → closure → self/hello_result)
+                            if session._listeners:
+                                try:
+                                    session._listeners['join'].remove(_on_backend_joined)
+                                except (KeyError, ValueError):
+                                    pass
                             # we now got everything! the frontend is authenticated, and a backend session is associated.
                             msg = message.Welcome(self._session_id,
                                                   ProxyFrontendSession.ROLES,
@@ -771,6 +785,13 @@ class ProxyFrontendSession(object):
                                 self._backend_session = None
                             else:
                                 def _on_backend_joined(session, details):
+                                    # one-shot: remove this handler so the closure doesn't hold
+                                    # references (session → _listeners → closure → self/auth_result)
+                                    if session._listeners:
+                                        try:
+                                            session._listeners['join'].remove(_on_backend_joined)
+                                        except (KeyError, ValueError):
+                                            pass
                                     msg = message.Welcome(self._session_id,
                                                           ProxyFrontendSession.ROLES,
                                                           realm=details.realm,

@@ -58,7 +58,7 @@ class UriObservation(object):
     Represents an URI observation maintained by a broker/dealer.
     """
 
-    __slots__ = ('uri', 'ordered', 'extra', 'id', 'created', 'observers')
+    __slots__ = ('uri', 'ordered', 'extra', 'id', 'created', 'observers', 'observers_extra')
 
     match: Optional[str] = None
 
@@ -104,6 +104,7 @@ class ExactUriObservation(UriObservation):
     Represents an exact-matching observation.
     """
 
+    __slots__ = ()
     match = "exact"
 
 
@@ -112,6 +113,7 @@ class PrefixUriObservation(UriObservation):
     Represents a prefix-matching observation.
     """
 
+    __slots__ = ()
     match = "prefix"
 
 
@@ -119,6 +121,8 @@ class WildcardUriObservation(UriObservation):
     """
     Represents a wildcard-matching observation.
     """
+
+    __slots__ = ()
     match = "wildcard"
 
 
