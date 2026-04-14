@@ -125,80 +125,83 @@ class Broker(object):
 
             is_rlink_session = (session._authrole == 'rlink')
 
-            for subscription in self._session_to_subscriptions[session]:
+            try:
+                for subscription in self._session_to_subscriptions[session]:
 
-                was_subscribed, was_last_subscriber, was_last_local_subscriber = self._subscription_map.drop_observer(session, subscription)
-                was_deleted = False
+                    was_subscribed, was_last_subscriber, was_last_local_subscriber = self._subscription_map.drop_observer(session, subscription)
+                    was_deleted = False
 
-                # delete it if there are no subscribers and no retained events
-                #
-                if was_subscribed and was_last_subscriber and not subscription.extra.retained_events:
-                    was_deleted = True
-                    try:
-                        self._subscription_map.delete_observation(subscription)
-                    except Exception:
-                        self.log.warn("Could not delete subscription observation {id} during detach", id=subscription.id)
+                    # delete it if there are no subscribers and no retained events
+                    #
+                    if was_subscribed and was_last_subscriber and not subscription.extra.retained_events:
+                        was_deleted = True
+                        try:
+                            self._subscription_map.delete_observation(subscription)
+                        except Exception:
+                            self.log.warn("Could not delete subscription observation {id} during detach", id=subscription.id)
 
 
-                exclude_authid = session._authid
+                    exclude_authid = session._authid
 
-                self.log.debug('Detach dropping subscription {sub_id} ({match}:{topic}) by {session} {authid}. Was Subscribed={was_sub} Last={last}, Last Local={last_local}, Deleted={deleted}',
-                               sub_id=subscription.id,
-                               match = subscription.match,
-                               topic=subscription.uri,
-                               session=session._session_id,
-                               authid=session._authid,
-                               was_sub=was_subscribed,
-                               last=was_last_subscriber,
-                               last_local=was_last_local_subscriber,
-                               deleted=was_deleted)
-                # publish WAMP meta events, if we have a service session, but
-                # not for the meta API itself!
-                #
-                if self._router._realm and \
-                   self._router._realm.session and \
-                   not subscription.uri.startswith('wamp.'):
+                    self.log.debug('Detach dropping subscription {sub_id} ({match}:{topic}) by {session} {authid}. Was Subscribed={was_sub} Last={last}, Last Local={last_local}, Deleted={deleted}',
+                                   sub_id=subscription.id,
+                                   match = subscription.match,
+                                   topic=subscription.uri,
+                                   session=session._session_id,
+                                   authid=session._authid,
+                                   was_sub=was_subscribed,
+                                   last=was_last_subscriber,
+                                   last_local=was_last_local_subscriber,
+                                   deleted=was_deleted)
+                    # publish WAMP meta events, if we have a service session, but
+                    # not for the meta API itself!
+                    #
+                    if self._router._realm and \
+                       self._router._realm.session and \
+                       not subscription.uri.startswith('wamp.'):
 
-                    def _publish(subscription, was_subscribed_l, was_deleted_l, was_last_subscriber_l, was_last_local_subscriber_l):
-                        service_session = self._router._realm.session
+                        def _publish(subscription, was_subscribed_l, was_deleted_l, was_last_subscriber_l, was_last_local_subscriber_l):
+                            service_session = self._router._realm.session
 
-                        # FIXME: what about exclude_authid as collected from forward_for? like we do elsewhere in this file!
-                        on_unsubscribe_options = types.PublishOptions(
-                            correlation_id=None,
-                            correlation_is_anchor=True,
-                            correlation_is_last=False,
-                            exclude_authid=exclude_authid,
-                        )
-
-                        if was_subscribed_l:
-                            service_session.publish(
-                                'wamp.subscription.on_unsubscribe',
-                                session._session_id,
-                                subscription.id,
-                                options=on_unsubscribe_options,
-                            )
-
-                        if was_deleted_l or was_last_local_subscriber_l:
-                            on_delete_options = types.PublishOptions(
+                            # FIXME: what about exclude_authid as collected from forward_for? like we do elsewhere in this file!
+                            on_unsubscribe_options = types.PublishOptions(
                                 correlation_id=None,
                                 correlation_is_anchor=True,
-                                correlation_is_last=True,
+                                correlation_is_last=False,
                                 exclude_authid=exclude_authid,
-                                exclude_authrole=['rlink'] if is_rlink_session else None,
-                                eligible_authrole=['rlink'] if was_last_local_subscriber_l and
-                                                               not was_last_subscriber_l else None,
-                            )
-                            service_session.publish(
-                                'wamp.subscription.on_delete',
-                                session._session_id,
-                                subscription.id,
-                                options=on_delete_options,
                             )
 
-                    # we postpone actual sending of meta events until we return to this client session
-                    self._reactor.callLater(0, _publish, subscription, was_subscribed, was_deleted, was_last_subscriber, was_last_local_subscriber)
+                            if was_subscribed_l:
+                                service_session.publish(
+                                    'wamp.subscription.on_unsubscribe',
+                                    session._session_id,
+                                    subscription.id,
+                                    options=on_unsubscribe_options,
+                                )
 
-            del self._session_to_subscriptions[session]
+                            if was_deleted_l or was_last_local_subscriber_l:
+                                on_delete_options = types.PublishOptions(
+                                    correlation_id=None,
+                                    correlation_is_anchor=True,
+                                    correlation_is_last=True,
+                                    exclude_authid=exclude_authid,
+                                    exclude_authrole=['rlink'] if is_rlink_session else None,
+                                    eligible_authrole=['rlink'] if was_last_local_subscriber_l and
+                                                                   not was_last_subscriber_l else None,
+                                )
+                                service_session.publish(
+                                    'wamp.subscription.on_delete',
+                                    session._session_id,
+                                    subscription.id,
+                                    options=on_delete_options,
+                                )
+
+                        # we postpone actual sending of meta events until we return to this client session
+                        self._reactor.callLater(0, _publish, subscription, was_subscribed, was_deleted, was_last_subscriber, was_last_local_subscriber)
+            except Exception:
+                self.log.failure("Error during subscription cleanup loop for session {id}; forcing removal from subscriptions map", id=session._session_id)
+            finally:
+                del self._session_to_subscriptions[session]
 
         else:
             raise NotAttached("session with ID {} not attached".format(session._session_id))

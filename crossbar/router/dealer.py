@@ -336,67 +336,70 @@ class Dealer(object):
                     except Exception as e:
                         self.log.warn("Failed to send Error message to caller: {ex}", ex=e)
 
-            for registration in self._session_to_registrations[session]:
-                was_registered, was_last_callee, was_last_local_callee = self._registration_map.drop_observer(session, registration)
+            try:
+                for registration in self._session_to_registrations[session]:
+                    was_registered, was_last_callee, was_last_local_callee = self._registration_map.drop_observer(session, registration)
 
-                if was_registered and was_last_callee:
-                    try:
-                        self._registration_map.delete_observation(registration)
-                    except Exception:
-                        self.log.warn("Could not delete observation {id} during detach", id=registration.id)
-                    # discard any queued calls for this registration
-                    if self._call_store:
+                    if was_registered and was_last_callee:
                         try:
-                            self._call_store.delete_queued_calls(registration.id)
+                            self._registration_map.delete_observation(registration)
                         except Exception:
-                            self.log.warn("Could not delete queued calls for registration {id} during detach", id=registration.id)
+                            self.log.warn("Could not delete observation {id} during detach", id=registration.id)
+                        # discard any queued calls for this registration
+                        if self._call_store:
+                            try:
+                                self._call_store.delete_queued_calls(registration.id)
+                            except Exception:
+                                self.log.warn("Could not delete queued calls for registration {id} during detach", id=registration.id)
 
-                # publish WAMP meta events, if we have a service session, but
-                # not for the meta API itself!
-                #
-                if self._router._realm and self._router._realm.session and not registration.uri.startswith('wamp.'):
+                    # publish WAMP meta events, if we have a service session, but
+                    # not for the meta API itself!
+                    #
+                    if self._router._realm and self._router._realm.session and not registration.uri.startswith('wamp.'):
 
-                    def _publish(registration, was_registered_l, was_last_callee_l, was_last_local_callee_l):
-                        service_session = self._router._realm.session
+                        def _publish(registration, was_registered_l, was_last_callee_l, was_last_local_callee_l):
+                            service_session = self._router._realm.session
 
-                        # FIXME: what about exclude_authid as collected from forward_for? like we do elsewhere in this file!
-                        options = types.PublishOptions(
-                            correlation_id=None,
-                            exclude_authrole=['rlink'] if is_rlink_session else None,
-                            eligible_authrole=['rlink'] if was_last_local_callee_l and
-                                                             not was_last_callee_l else None,
-                        )
-
-                        if was_registered_l:
-                            service_session.publish(
-                                'wamp.registration.on_unregister',
-                                session._session_id,
-                                registration.id,
-                                options=options,
+                            # FIXME: what about exclude_authid as collected from forward_for? like we do elsewhere in this file!
+                            options = types.PublishOptions(
+                                correlation_id=None,
+                                exclude_authrole=['rlink'] if is_rlink_session else None,
+                                eligible_authrole=['rlink'] if was_last_local_callee_l and
+                                                                 not was_last_callee_l else None,
                             )
 
-                        if was_last_callee_l or was_last_local_callee_l:
-                            service_session.publish(
-                                'wamp.registration.on_delete',
-                                session._session_id,
-                                registration.id,
-                                options=options,
-                            )
+                            if was_registered_l:
+                                service_session.publish(
+                                    'wamp.registration.on_unregister',
+                                    session._session_id,
+                                    registration.id,
+                                    options=options,
+                                )
 
-                            registration_details = {
-                                'id': registration.id,
-                                'created': registration.created,
-                                'uri': registration.uri,
-                                'match': registration.match,
-                            }
+                            if was_last_callee_l or was_last_local_callee_l:
+                                service_session.publish(
+                                    'wamp.registration.on_delete',
+                                    session._session_id,
+                                    registration.id,
+                                    options=options,
+                                )
 
-                            service_session.publish('wamp.registration.on_delete_detailed', session._session_id,
-                                                    registration.id, registration_details)
+                                registration_details = {
+                                    'id': registration.id,
+                                    'created': registration.created,
+                                    'uri': registration.uri,
+                                    'match': registration.match,
+                                }
 
-                    # we postpone actual sending of meta events until we return to this client session
-                    self._reactor.callLater(0, _publish, registration, was_registered, was_last_callee, was_last_local_callee)
+                                service_session.publish('wamp.registration.on_delete_detailed', session._session_id,
+                                                        registration.id, registration_details)
 
-            del self._session_to_registrations[session]
+                        # we postpone actual sending of meta events until we return to this client session
+                        self._reactor.callLater(0, _publish, registration, was_registered, was_last_callee, was_last_local_callee)
+            except Exception:
+                self.log.failure("Error during registration cleanup loop for session {id}; forcing removal from registrations map", id=session._session_id)
+            finally:
+                del self._session_to_registrations[session]
 
         else:
             raise NotAttached("session with ID {} not attached".format(session._session_id))
