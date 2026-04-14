@@ -408,6 +408,7 @@ class RouterSession(BaseSession):
         self._realm = None
         self._testaments: Dict[str, List[message.Message]] = {"destroyed": [], "detached": []}
         self._goodbye_sent = False
+        self._detach_failed_on_goodbye = False
         self._transport_is_closing = False
         self._session_details = None
         self._service_session = None
@@ -477,6 +478,7 @@ class RouterSession(BaseSession):
                 self._session_id = self._pending_session_id
                 self._pending_session_id = None
                 self._goodbye_sent = False
+                self._detach_failed_on_goodbye = False
 
                 self._router = self._router_factory.get(realm)
                 if not self._router:
@@ -671,7 +673,8 @@ class RouterSession(BaseSession):
                 try:
                     self._router.detach(self)
                 except Exception:
-                    self.log.failure("Internal error")
+                    self.log.failure("Internal error detaching session on GOODBYE; onClose will retry")
+                    self._detach_failed_on_goodbye = True
 
                 # In order to send wamp.session.on_leave properly
                 # (i.e. *with* the proper session_id) we save it
@@ -748,6 +751,16 @@ class RouterSession(BaseSession):
                 self.log.warn("{tb}".format(tb=Failure().getTraceback()))
 
             self._session_id = None
+        elif self._detach_failed_on_goodbye and self._previous_session_id is not None:
+            # The GOODBYE handler cleared _session_id but router.detach() failed; retry
+            # cleanup now that the transport is definitively closed. router._detach() uses
+            # _previous_session_id as a fallback when _session_id is None.
+            self._detach_failed_on_goodbye = False
+            try:
+                self._router.detach(self)
+            except Exception as e:
+                self.log.error("Retry detach failed for zombie session '{}': {}".format(
+                    self._previous_session_id, e))
 
         self._previous_session_id = None
         self._pending_session_id = None

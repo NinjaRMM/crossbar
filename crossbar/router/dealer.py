@@ -229,7 +229,12 @@ class Dealer(object):
 
                 invokes = self._callee_to_invocations.get(callee)
                 if invokes:
-                    invokes.remove(invoke)
+                    try:
+                        invokes.remove(invoke)
+                    except ValueError:
+                        # invoke may have already been removed by _remove_invoke_request
+                        # during normal call completion racing with session disconnect
+                        pass
                     if not invokes:
                         del self._callee_to_invocations[callee]
 
@@ -287,7 +292,11 @@ class Dealer(object):
 
                 caller_invokes = self._caller_to_invocations.get(invoke.caller)
                 if caller_invokes:
-                    caller_invokes.remove(invoke)
+                    try:
+                        caller_invokes.remove(invoke)
+                    except ValueError:
+                        # invoke may have already been removed by _remove_invoke_request
+                        pass
                     if not caller_invokes:
                         del self._caller_to_invocations[invoke.caller]
 

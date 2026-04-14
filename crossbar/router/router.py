@@ -268,19 +268,30 @@ class Router(object):
         """
         Implements :func:`autobahn.wamp.interfaces.IRouter.detach`
         """
-        self._broker.detach(session)
-        self._dealer.detach(session)
+        # Use _previous_session_id as fallback in case _session_id was already
+        # cleared (e.g. retrying detach from onClose after a GOODBYE-path failure)
+        session_id = session._session_id if session._session_id is not None else session._previous_session_id
 
-        if session._session_id in self._session_id_to_session:
-            del self._session_id_to_session[session._session_id]
+        try:
+            self._broker.detach(session)
+        except Exception:
+            self.log.failure("Error detaching session {id} from broker; continuing cleanup", id=session_id)
+
+        try:
+            self._dealer.detach(session)
+        except Exception:
+            self.log.failure("Error detaching session {id} from dealer; continuing cleanup", id=session_id)
+
+        if session_id in self._session_id_to_session:
+            del self._session_id_to_session[session_id]
         else:
-            raise Exception("session with ID {} not attached".format(session._session_id))
+            self.log.warn("Session {id} not found in _session_id_to_session during detach", id=session_id)
 
         self._attached -= 1
         if not self._attached:
             self._factory.on_last_detach(self)
 
-        return session._session_id
+        return session_id
 
     def _check_trace(self, session, msg):
         if not self._trace_traffic:

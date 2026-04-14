@@ -175,6 +175,8 @@ class RouterServiceAgent(ApplicationSession):
         except Exception as e:
             self.log.failure()
             if on_ready:
+                if self.config.extra:
+                    self.config.extra['onready'] = None
                 on_ready.errback(e)
             self.leave()
         else:
@@ -188,6 +190,8 @@ class RouterServiceAgent(ApplicationSession):
                 on_ready=on_ready,
             )
             if on_ready:
+                if self.config.extra:
+                    self.config.extra['onready'] = None
                 on_ready.callback(self)
 
     @inlineCallbacks

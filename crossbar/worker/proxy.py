@@ -915,6 +915,8 @@ class ProxyBackendSession(Session):
                     fail=e,
                 )
         self._frontend = None
+        # clear the fired Deferred to break the cycle: backend → _on_ready → result = backend
+        self._on_ready = None
         super(ProxyBackendSession, self).onClose(wasClean)
 
     def onMessage(self, msg: IMessage):
