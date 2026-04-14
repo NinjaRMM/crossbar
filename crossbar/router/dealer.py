@@ -224,7 +224,10 @@ class Dealer(object):
                     pending_messages.append(pending_message)
 
                 if invoke.timeout_call:
-                    invoke.timeout_call.cancel()
+                    try:
+                        invoke.timeout_call.cancel()
+                    except Exception:
+                        self.log.warn("Could not cancel timeout_call during caller detach for invoke {id}", id=invoke.id)
                     invoke.timeout_call = None
 
                 invokes = self._callee_to_invocations.get(callee)
@@ -287,7 +290,10 @@ class Dealer(object):
                 caller_notifications.append((invoke.caller, reply))
 
                 if invoke.timeout_call:
-                    invoke.timeout_call.cancel()
+                    try:
+                        invoke.timeout_call.cancel()
+                    except Exception:
+                        self.log.warn("Could not cancel timeout_call during callee detach for invoke {id}", id=invoke.id)
                     invoke.timeout_call = None
 
                 caller_invokes = self._caller_to_invocations.get(invoke.caller)
@@ -334,10 +340,16 @@ class Dealer(object):
                 was_registered, was_last_callee, was_last_local_callee = self._registration_map.drop_observer(session, registration)
 
                 if was_registered and was_last_callee:
-                    self._registration_map.delete_observation(registration)
+                    try:
+                        self._registration_map.delete_observation(registration)
+                    except Exception:
+                        self.log.warn("Could not delete observation {id} during detach", id=registration.id)
                     # discard any queued calls for this registration
                     if self._call_store:
-                        self._call_store.delete_queued_calls(registration.id)
+                        try:
+                            self._call_store.delete_queued_calls(registration.id)
+                        except Exception:
+                            self.log.warn("Could not delete queued calls for registration {id} during detach", id=registration.id)
 
                 # publish WAMP meta events, if we have a service session, but
                 # not for the meta API itself!

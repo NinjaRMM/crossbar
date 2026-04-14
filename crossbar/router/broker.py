@@ -134,7 +134,10 @@ class Broker(object):
                 #
                 if was_subscribed and was_last_subscriber and not subscription.extra.retained_events:
                     was_deleted = True
-                    self._subscription_map.delete_observation(subscription)
+                    try:
+                        self._subscription_map.delete_observation(subscription)
+                    except Exception:
+                        self.log.warn("Could not delete subscription observation {id} during detach", id=subscription.id)
 
 
                 exclude_authid = session._authid
