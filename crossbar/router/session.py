@@ -1182,16 +1182,20 @@ class RouterSession(BaseSession):
         # because they hit a syntax error)
         if self._router is not None:
             # todo: move me into detatch when session resumption happens
-            for msg in self._testaments["detached"]:
-                self._router.process(self, msg)
+            try:
+                for msg in self._testaments["detached"]:
+                    self._router.process(self, msg)
 
-            for msg in self._testaments["destroyed"]:
-                self._router.process(self, msg)
-
-            # clear testaments after processing so they are not re-published if the
-            # session re-joins on the same transport, and to release message references
-            self._testaments["detached"] = []
-            self._testaments["destroyed"] = []
+                for msg in self._testaments["destroyed"]:
+                    self._router.process(self, msg)
+            except Exception:
+                self.log.failure("Error processing testaments for session {session_id}; continuing session cleanup",
+                                 session_id=session_id)
+            finally:
+                # clear testaments after processing so they are not re-published if the
+                # session re-joins on the same transport, and to release message references
+                self._testaments["detached"] = []
+                self._testaments["destroyed"] = []
 
             self._router._session_left(self, self._session_details, details)
 
