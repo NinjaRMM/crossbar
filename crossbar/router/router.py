@@ -216,12 +216,34 @@ class Router(object):
         """
         Internal helper.
         """
-        self._authid_to_sessions[session_details.authid].discard(session)
-        if not self._authid_to_sessions[session_details.authid]:
-            del self._authid_to_sessions[session_details.authid]
-        self._authrole_to_sessions[session_details.authrole].discard(session)
-        if not self._authrole_to_sessions[session_details.authrole]:
-            del self._authrole_to_sessions[session_details.authrole]
+        if session_details is not None:
+            authid = session_details.authid
+            authid_sessions = self._authid_to_sessions.get(authid)
+            if authid_sessions is not None:
+                authid_sessions.discard(session)
+                if not authid_sessions:
+                    del self._authid_to_sessions[authid]
+            else:
+                self.log.warn(
+                    "_session_left: session {session_id} authid '{authid}' not found in _authid_to_sessions",
+                    session_id=session._session_id,
+                    authid=authid)
+
+            authrole = session_details.authrole
+            authrole_sessions = self._authrole_to_sessions.get(authrole)
+            if authrole_sessions is not None:
+                authrole_sessions.discard(session)
+                if not authrole_sessions:
+                    del self._authrole_to_sessions[authrole]
+            else:
+                self.log.warn(
+                    "_session_left: session {session_id} authrole '{authrole}' not found in _authrole_to_sessions",
+                    session_id=session._session_id,
+                    authrole=authrole)
+        else:
+            self.log.warn(
+                "_session_left: called with None session_details for session {session_id}",
+                session_id=session._session_id)
 
         if self._store:
             self._store.store_session_left(session, close_details)
