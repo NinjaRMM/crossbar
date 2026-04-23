@@ -108,6 +108,8 @@ class Router(object):
         # self._factory._worker._maybe_trace_tx_msg / _maybe_trace_rx_msg
         self._is_traced = False
 
+        self._traffic_observer = None
+
         self.reset_stats()
 
     def stats(self, reset=False):
@@ -133,6 +135,9 @@ class Router(object):
         if reset:
             self.reset_stats()
         return stats
+
+    def set_traffic_observer(self, observer):
+        self._traffic_observer = observer
 
     def reset_stats(self):
         """
@@ -354,6 +359,8 @@ class Router(object):
             #
             if isinstance(msg, message.Publish):
                 self._broker.processPublish(session, msg)
+                if self._traffic_observer is not None and session._authrole != 'trusted':
+                    self._traffic_observer(session._authrole, msg.topic.rsplit('.', 1)[-1], 'publish')
 
             elif isinstance(msg, message.Subscribe):
                 self._broker.processSubscribe(session, msg)
@@ -375,6 +382,8 @@ class Router(object):
 
             elif isinstance(msg, message.Call):
                 self._dealer.processCall(session, msg)
+                if self._traffic_observer is not None and session._authrole != 'trusted':
+                    self._traffic_observer(session._authrole, msg.procedure.rsplit('.', 1)[-1], 'call')
 
             elif isinstance(msg, message.Cancel):
                 self._dealer.processCancel(session, msg)
