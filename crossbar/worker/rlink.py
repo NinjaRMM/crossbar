@@ -13,6 +13,7 @@ import socket
 from collections.abc import Mapping, Sequence
 from typing import Dict, Any, Iterable, Iterator
 
+from twisted.internet import reactor
 from twisted.internet.defer import Deferred, inlineCallbacks, returnValue
 
 from autobahn import util
@@ -476,7 +477,7 @@ class BridgeSession(ApplicationSession):
             else:
                 forward_for = [this_forward]
 
-            options = CallOptions(forward_for=forward_for, on_progress=details.progress)
+            options = CallOptions(forward_for=forward_for, on_progress=details.progress, timeout=30)
 
             try:
                 result = yield other.call(procedure, *args, options=options, **kwargs)
@@ -603,7 +604,7 @@ class BridgeSession(ApplicationSession):
                 else:
                     forward_for = [this_forward]
 
-                options = CallOptions(forward_for=forward_for)
+                options = CallOptions(forward_for=forward_for, timeout=30)
 
                 try:
                     result = yield self.call(details.procedure or uri, *args, options=options, **kwargs)
@@ -1259,7 +1260,9 @@ class RLinkTemplate(object):
 
                 try:
                     # pass original topic uri to support whildcard events #1959
-                    yield rlink.remote.publish(event_details.topic, *args, options=options, **kwargs)
+                    d = rlink.remote.publish(event_details.topic, *args, options=options, **kwargs)
+                    d.addTimeout(30, reactor)
+                    yield d
                 except TransportLost:
                     return
                 except ApplicationError as e:
